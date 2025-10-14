@@ -6,20 +6,42 @@ from google.cloud import firestore
 
 # --- 0. Streamlit 介面設定 (字體 Inter) ---
 
-def set_inter_font():
-    """注入客製化 CSS，將應用程式字體設定為 Inter 並加入中文字體備用"""
-    st.markdown("""
+# 接收背景顏色作為參數
+def set_inter_font(bg_color):
+    """注入客製化 CSS，將應用程式字體設定為 Inter 並加入中文字體備用，並設定背景色"""
+    css = f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
-        /* 設置整個頁面使用 Inter，並以常用的中文字體作為備用 */
-        html, body, [class*="st-"] {
+        /* 設置字體 */
+        html, body, [class*="st-"] {{
             font-family: 'Inter', "PingFang TC", "Microsoft YaHei", sans-serif;
-        }
+        }}
+        
+        /* 設置背景顏色 */
+        /* 覆寫 Streamlit 的主要內容區域背景 */
+        .main {{
+            background-color: {bg_color};
+            padding-top: 2rem; 
+        }}
+        /* 針對 Streamlit 頁面最外層的背景 */
+        [data-testid="stAppViewContainer"] {{
+            background-color: {bg_color};
+        }}
+        /* 保持側邊欄為白色，與主內容區分隔，增強視覺層次感 */
+        section[data-testid="stSidebar"] {{
+            background-color: #ffffff; 
+        }}
+        
+        /* 讓輸入框和按鈕等元件看起來更現代 */
+        div.stButton > button:first-child {{
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            transition: all 0.2s;
+        }}
         </style>
-        """, 
-        unsafe_allow_html=True
-    )
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
 # --- 1. Firestore 連線與操作 ---
 
@@ -117,13 +139,26 @@ def main():
 
     # 設置頁面配置
     st.set_page_config(layout="wide", page_title="宅宅家族記帳本")
-    set_inter_font()
+    
+    # --- 側邊欄：介面設定區 ---
+    with st.sidebar:
+        st.header("🎨 介面設定")
+        # 讓使用者選擇背景顏色
+        selected_color = st.color_picker(
+            '選擇背景顏色', 
+            '#f0f8ff' # 預設為 AliceBlue (淡藍色)
+        )
+        st.markdown("---")
+    
+    # 注入 CSS 樣式 (使用選擇的顏色)
+    set_inter_font(selected_color) 
+    
     st.title("宅宅家族記帳本 (雲端數據)")
 
     # 獲取所有交易數據 (每次 App 刷新時執行)
     df = get_all_transactions_from_db(db)
     
-    # --- 側邊欄：輸入區 ---
+    # --- 側邊欄：輸入區 (接續介面設定區之後) ---
     with st.sidebar:
         st.header("新增交易紀錄")
         
@@ -217,7 +252,6 @@ def main():
     first_day_of_current_month = today.replace(day=1)
     
     # 修正點：確保預設的起始日期不會早於資料中最早的日期 (min_date_in_data)
-    # 如果資料比本月的第一天晚，則從資料的第一天開始預設範圍
     default_start_date = max(first_day_of_current_month, min_date_in_data)
 
 
