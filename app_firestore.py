@@ -212,14 +212,17 @@ def main():
     # 1. 準備日期範圍篩選
     min_date_in_data = df['date'].min().date()
     today = datetime.date.today()
+    
+    # 計算當月的第一天作為新的預設起始日期
+    first_day_of_current_month = today.replace(day=1)
 
     st.header("🔍 選擇查看日期範圍")
 
     # 使用 st.date_input 選擇日期範圍，支援日曆點選
     date_range = st.date_input(
         "選擇起始與結束日期",
-        # 預設值為數據中最早的日期和今天的日期
-        value=(min_date_in_data, today),
+        # 預設值變更為：當月的第一天到今天
+        value=(first_day_of_current_month, today),
         min_value=min_date_in_data,
         max_value=today,
         key="date_range_picker"
