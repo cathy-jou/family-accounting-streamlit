@@ -10,21 +10,32 @@ from google.cloud import firestore
 DEFAULT_BG_COLOR = "#f8f9fa" 
 
 def set_ui_styles():
-    """注入客製化 CSS，設定字體、簡約背景色和縮小主標題字體"""
+    """注入客製化 CSS，設定字體、簡約背景色和縮小主標題字體與調整間距"""
     css = f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
-        /* 設置字體 */
+        /* 設置字體與基礎大小 (略微縮小基礎字體) */
         html, body, [class*="st-"] {{
             font-family: 'Inter', "PingFang TC", "Microsoft YaHei", sans-serif;
+            font-size: 15px; /* 調整基礎字體大小 */
         }}
         
-        /* 設定主標題 H1 字體大小 */
+        /* 設定主標題 H1 字體大小並增加間距 */
         h1 {{
-            font-size: 2rem; /* 將字體縮小 */
+            font-size: 1.8rem; /* 將字體微縮 */
             font-weight: 700;
             color: #343a40; /* 深灰色字體 */
+            margin-bottom: 2.5rem; /* 拉大與下方內容的間距 */
+        }}
+        
+        /* 設定區塊標題 H2 (st.header) 字體大小並增加間距 */
+        h2 {{
+            font-size: 1.4rem; /* H2 字體縮小 */
+            font-weight: 600;
+            color: #495057;
+            margin-top: 2rem; /* 拉大頂部間距 */
+            margin-bottom: 1.5rem; /* 拉大底部間距 */
         }}
 
         /* 設置簡約背景顏色 */
@@ -47,6 +58,19 @@ def set_ui_styles():
             border-radius: 8px;
             border: 1px solid #ddd;
             transition: all 0.2s;
+        }}
+        
+        /* 側邊欄輸入框背景色 (讓邊界清晰可見) */
+        /* 針對側邊欄內的主要輸入元件容器設定淺灰色背景 */
+        section[data-testid="stSidebar"] div.stTextInput > div:first-child,
+        section[data-testid="stSidebar"] div.stNumberInput > div:first-child,
+        section[data-testid="stSidebar"] div.stDateInput > div:first-child,
+        section[data-testid="stSidebar"] div.stSelectbox > div:first-child
+        {{
+            background-color: #f5f5f5; /* 柔和的淺灰色背景 */
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef; /* 加上極淺的邊界 */
         }}
         </style>
     """
@@ -392,4 +416,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
