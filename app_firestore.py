@@ -72,6 +72,20 @@ def set_ui_styles():
             border-radius: 6px;
             border: 1px solid #e9ecef; /* 加上極淺的邊界 */
         }}
+        
+        /* --- 新增：Placeholder 樣式，設定為柔和的淺灰色 --- */
+        /* 針對數字輸入框 */
+        section[data-testid="stSidebar"] input[type="number"]::placeholder {{
+            color: #adb5bd !important; /* 柔和的淺灰色，接近文字提示效果 */
+            opacity: 1; /* 確保在所有瀏覽器中都可見 */
+        }}
+
+        /* 針對文字輸入框 */
+        section[data-testid="stSidebar"] input[type="text"]::placeholder {{
+            color: #adb5bd !important;
+            opacity: 1;
+        }}
+        /* --- 結束：Placeholder 樣式 --- */
         </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -208,8 +222,9 @@ def main():
             trans_type = st.radio("交易類型", TRANSACTION_TYPES, index=0)
             
             # 2. 金額
-            # min_value=1, format="%d", step=1 確保只接受整數
-            amount = st.number_input("金額 (新台幣)", min_value=1, format="%d", step=1)
+            # 新增 placeholder 參數
+            amount = st.number_input("金額 (新台幣)", min_value=1, format="%d", step=1, 
+                                     placeholder="例如: 350")
             
             # 3. 類別 - 動態處理區
             category = "" # 初始化 category
@@ -223,10 +238,11 @@ def main():
                 selected_category = st.selectbox("類別", expense_category_options, index=default_index)
                 
                 if selected_category == CUSTOM_OPTION:
-                    # 顯示自訂輸入框
+                    # 顯示自訂輸入框，新增 placeholder 參數
                     custom_category = st.text_input("請輸入新的支出類別名稱", 
                                                    value="", # 清空預設值
-                                                   key="custom_cat_input")
+                                                   key="custom_cat_input",
+                                                   placeholder="例如: 醫療、寵物")
                     if custom_category:
                         # 使用者輸入了自訂類別
                         category = custom_category.strip()
@@ -239,10 +255,12 @@ def main():
                     category = selected_category
             
             # 4. 日期
+            # st.date_input 不支援 placeholder，但已是日曆選擇器，足夠清晰
             date = st.date_input("日期", datetime.date.today())
             
             # 5. 備註
-            note = st.text_input("備註 (例如: 晚餐-麥當勞)")
+            # 新增 placeholder 參數
+            note = st.text_input("備註 (例如: 晚餐-麥當勞)", placeholder="例如: 晚餐-麥當勞，或薪水入帳")
             
             submitted = st.form_submit_button("✅ 新增交易")
             
@@ -435,5 +453,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
