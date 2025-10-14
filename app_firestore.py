@@ -6,9 +6,11 @@ from google.cloud import firestore
 
 # --- 0. Streamlit 介面設定 (字體 Inter) ---
 
-# 接收背景顏色作為參數
-def set_inter_font(bg_color):
-    """注入客製化 CSS，將應用程式字體設定為 Inter 並加入中文字體備用，並設定背景色"""
+# 設定固定的淺灰色背景
+DEFAULT_BG_COLOR = "#f8f9fa" 
+
+def set_ui_styles():
+    """注入客製化 CSS，設定字體、簡約背景色和縮小主標題字體"""
     css = f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -18,15 +20,22 @@ def set_inter_font(bg_color):
             font-family: 'Inter', "PingFang TC", "Microsoft YaHei", sans-serif;
         }}
         
-        /* 設置背景顏色 */
+        /* 設定主標題 H1 字體大小 */
+        h1 {{
+            font-size: 2rem; /* 將字體縮小 */
+            font-weight: 700;
+            color: #343a40; /* 深灰色字體 */
+        }}
+
+        /* 設置簡約背景顏色 */
         /* 覆寫 Streamlit 的主要內容區域背景 */
         .main {{
-            background-color: {bg_color};
+            background-color: {DEFAULT_BG_COLOR};
             padding-top: 2rem; 
         }}
         /* 針對 Streamlit 頁面最外層的背景 */
         [data-testid="stAppViewContainer"] {{
-            background-color: {bg_color};
+            background-color: {DEFAULT_BG_COLOR};
         }}
         /* 保持側邊欄為白色，與主內容區分隔，增強視覺層次感 */
         section[data-testid="stSidebar"] {{
@@ -140,26 +149,17 @@ def main():
     # 設置頁面配置
     st.set_page_config(layout="wide", page_title="宅宅家族記帳本")
     
-    # --- 側邊欄：介面設定區 ---
-    with st.sidebar:
-        st.header("🎨 介面設定")
-        # 讓使用者選擇背景顏色
-        selected_color = st.color_picker(
-            '選擇背景顏色', 
-            '#f0f8ff' # 預設為 AliceBlue (淡藍色)
-        )
-        st.markdown("---")
-    
-    # 注入 CSS 樣式 (使用選擇的顏色)
-    set_inter_font(selected_color) 
+    # 注入 CSS 樣式
+    set_ui_styles() 
     
     st.title("宅宅家族記帳本 (雲端數據)")
 
     # 獲取所有交易數據 (每次 App 刷新時執行)
     df = get_all_transactions_from_db(db)
     
-    # --- 側邊欄：輸入區 (接續介面設定區之後) ---
+    # --- 側邊欄：輸入區 ---
     with st.sidebar:
+        # 移除介面設定區
         st.header("新增交易紀錄")
         
         # 準備動態類別列表
@@ -392,3 +392,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
