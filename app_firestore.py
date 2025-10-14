@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import altair as alt # 導入 Altair 庫用於進階圖表控制
 from google.cloud import firestore
 
 # --- 0. Streamlit 介面設定 (字體 Inter) ---
@@ -171,6 +172,9 @@ def main():
     
     df_filtered = df[df['month_year'] == selected_month]
     
+    # 確保篩選後的資料是以日期(最新到最舊)排序，保障顯示順序
+    df_filtered = df_filtered.sort_values(by='date', ascending=False)
+    
     st.header(f" {selected_month} 月份總結")
     
     # 3.1. 總覽儀表板
@@ -189,15 +193,35 @@ def main():
     st.markdown("---")
     
     # 3.2. 支出類別圖表
-    st.header("支出類別分佈")
+    st.header("支出類別分佈 (灰階)")
     
     expense_data = df_filtered[df_filtered['type'] == 'Expense'].groupby('category')['amount'].sum().reset_index()
     
     if not expense_data.empty and total_expense > 0:
-        # 使用 Streamlit 內建的圖表功能 (Bar Chart)
         expense_data = expense_data.sort_values(by='amount', ascending=False)
-        st.bar_chart(expense_data.set_index('category')) 
-        #st.dataframe(expense_data.rename(columns={'category': '類別', 'amount': '支出金額'}))
+        
+        # --- 使用 Altair 創建灰階條形圖 ---
+        chart = alt.Chart(expense_data).mark_bar().encode(
+            # X 軸：類別
+            x=alt.X('category', title='支出類別', sort='-y'),
+            # Y 軸：支出金額
+            y=alt.Y('amount', title='支出金額 (NT$)'),
+            # 顏色：根據金額大小使用不同的灰色深度 (灰階色盤)
+            color=alt.Color(
+                'amount', 
+                scale=alt.Scale(range=['lightgray', 'darkslategray']), # 設定從淺灰到深灰的範圍
+                legend=None # 隱藏圖例，因為顏色代表數值
+            ),
+            # tooltip：滑鼠懸停顯示細節
+            tooltip=['category', alt.Tooltip('amount', format=',.0f', title='總支出')]
+        ).properties(
+            # 設定圖表標題
+            title="當月各類別支出金額分佈"
+        ).interactive() # 啟用互動式縮放和平移
+
+        st.altair_chart(chart, use_container_width=True)
+        # --------------------------------------
+        
     else:
         st.info("本月無支出紀錄或總支出為零，無法顯示支出分佈圖。")
 
@@ -243,3 +267,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
