@@ -52,7 +52,7 @@ def add_transaction_to_db(db, date, category, amount, type, note):
     transaction_data = {
         'date': date.strftime('%Y-%m-%d'),
         'category': category,
-        # 將金額儲存為浮點數
+        # 將金額儲存為浮點數 (Firestore 建議儲存為數字類型，即使是整數)
         'amount': float(amount), 
         'type': type,  # 'Income' or 'Expense'
         'note': note,
@@ -104,6 +104,12 @@ def delete_transaction_from_db(db, doc_id):
 
 # --- 2. Streamlit 介面與應用邏輯 ---
 
+# 定義基礎類別和常數
+BASE_EXPENSE_CATEGORIES = ['飲食', '交通', '家庭', '娛樂', '教育', '其他']
+INCOME_CATEGORY = '收入'
+TRANSACTION_TYPES = ['支出', '收入']
+CUSTOM_OPTION = "⚙️ 新增自訂支出類別..." # 用於觸發自訂輸入框的選項
+
 def main():
     
     # 初始化並連線到 Firestore
@@ -121,24 +127,56 @@ def main():
     with st.sidebar:
         st.header("新增交易紀錄")
         
-        CATEGORIES = ['飲食', '交通', '家庭', '娛樂', '教育', '收入', '其他']
-        TRANSACTION_TYPES = ['支出', '收入']
+        # 準備動態類別列表
+        all_expense_categories = []
+        if not df.empty:
+            # 找出所有已儲存的支出類別
+            all_expense_categories = df[df['type'] == 'Expense']['category'].unique().tolist()
+        
+        # 合併基礎類別和已儲存類別，確保不重複並排序
+        combined_expense_categories = sorted(list(set(BASE_EXPENSE_CATEGORIES + all_expense_categories)))
+        
+        # 加入「新增自訂類別」的選項
+        expense_category_options = combined_expense_categories + [CUSTOM_OPTION]
+
+        # 設定預設選項為「飲食」，若「飲食」不在列表中則預設選第一個
+        default_index = expense_category_options.index('飲食') if '飲食' in expense_category_options else 0
+
 
         with st.form("transaction_form"):
             # 1. 交易類型
             trans_type = st.radio("交易類型", TRANSACTION_TYPES, index=0)
             
             # 2. 金額
-            amount = st.number_input("金額 (新台幣)", min_value=0.01, format="%.2f", step=10.0)
+            # min_value=1, format="%d", step=1 確保只接受整數
+            amount = st.number_input("金額 (新台幣)", min_value=1, format="%d", step=1)
             
-            # 3. 類別
-            category_options = CATEGORIES.copy()
-            if trans_type == '支出':
-                category_options.remove('收入')
-            elif trans_type == '收入':
-                category_options = ['收入']
+            # 3. 類別 - 動態處理區
+            category = "" # 初始化 category
             
-            category = st.selectbox("類別", category_options)
+            if trans_type == '收入':
+                # 收入類別固定，不提供自訂
+                category = INCOME_CATEGORY
+                st.markdown(f"**類別**: **{category}** (固定)")
+            else:
+                # 支出類別：允許選擇或自訂
+                selected_category = st.selectbox("類別", expense_category_options, index=default_index)
+                
+                if selected_category == CUSTOM_OPTION:
+                    # 顯示自訂輸入框
+                    custom_category = st.text_input("請輸入新的支出類別名稱", 
+                                                   value="", # 清空預設值
+                                                   key="custom_cat_input")
+                    if custom_category:
+                        # 使用者輸入了自訂類別
+                        category = custom_category.strip()
+                    else:
+                        # 提醒使用者輸入
+                        category = ""
+                        st.warning("請輸入自訂類別名稱。")
+                else:
+                    # 使用者選擇了現有類別
+                    category = selected_category
             
             # 4. 日期
             date = st.date_input("日期", datetime.date.today())
@@ -149,6 +187,12 @@ def main():
             submitted = st.form_submit_button("✅ 新增交易")
             
             if submitted:
+                # 檢查類別是否有效（主要針對自訂類別的情況）
+                if not category:
+                    st.error("請提供一個有效的支出類別名稱。")
+                    # 停止應用程式運行，以防止提交空類別
+                    st.stop()
+                
                 # 轉換交易類型
                 db_type = 'Income' if trans_type == '收入' else 'Expense'
                 
@@ -249,7 +293,7 @@ def main():
         # 顯示交易細節
         col_date.write(row['日期'].strftime('%Y-%m-%d'))
         col_cat.write(f"**{row['類型']}**")
-        col_amount.write(f"NT$ {row['金額']:,.2f}")
+        col_amount.write(f"NT$ {row['金額']:,.0f}") # 這裡也改為不顯示小數點
         col_note.write(row['備註'])
         
         # 刪除按鈕
@@ -267,4 +311,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
