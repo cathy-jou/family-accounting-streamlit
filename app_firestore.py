@@ -209,18 +209,57 @@ def main():
         st.warning("目前雲端資料庫中還沒有交易紀錄，請從左側新增第一筆紀錄！")
         return
 
-    # 篩選月份
-    available_months = df['month_year'].unique().astype(str)
-    # 預設選取最新的月份
-    selected_month = st.selectbox("📅 選擇查看月份", available_months, index=0)
+    # 1. 準備日期範圍篩選
+    min_date_in_data = df['date'].min().date()
+    today = datetime.date.today()
+
+    st.header("🔍 選擇查看日期範圍")
+
+    # 使用 st.date_input 選擇日期範圍，支援日曆點選
+    date_range = st.date_input(
+        "選擇起始與結束日期",
+        # 預設值為數據中最早的日期和今天的日期
+        value=(min_date_in_data, today),
+        min_value=min_date_in_data,
+        max_value=today,
+        key="date_range_picker"
+    )
     
-    df_filtered = df[df['month_year'] == selected_month]
+    # 2. 處理選擇的日期範圍
+    # st.date_input 在選擇一個或兩個日期時返回一個 tuple
+    start_date = min_date_in_data
+    end_date = today
+    
+    if len(date_range) == 2:
+        start_date = date_range[0]
+        end_date = date_range[1]
+        
+    elif len(date_range) == 1:
+        # 僅選擇了一個日期，視為起始日期，結束日期為今天
+        start_date = date_range[0]
+        end_date = today
+
+    # 確保 start_date 在 end_date 之前
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    
+    # 3. 執行篩選
+    # df['date'] 是 datetime 類型，df['date'].dt.date 是 date 類型
+    df_filtered = df[
+        (df['date'].dt.date >= start_date) & 
+        (df['date'].dt.date <= end_date)
+    ]
     
     # 確保篩選後的資料是以日期(最新到最舊)排序，保障顯示順序
     df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
-    st.header(f" {selected_month} 月份總結")
+    # 更新標題顯示選擇的日期範圍
+    st.header(f" {start_date} 至 {end_date} 總結")
     
+    if df_filtered.empty:
+        st.warning(f"在 {start_date} 至 {end_date} 範圍內沒有找到交易紀錄。請調整日期篩選條件。")
+        return
+
     # 3.1. 總覽儀表板
     col1, col2, col3 = st.columns(3)
     
@@ -260,14 +299,14 @@ def main():
             tooltip=['category', alt.Tooltip('amount', format=',.0f', title='總支出')]
         ).properties(
             # 設定圖表標題
-            title="當月各類別支出金額分佈"
+            title="選定範圍內各類別支出金額分佈"
         ).interactive() # 啟用互動式縮放和平移
 
         st.altair_chart(chart, use_container_width=True)
         # --------------------------------------
         
     else:
-        st.info("本月無支出紀錄或總支出為零，無法顯示支出分佈圖。")
+        st.info("選定範圍內無支出紀錄或總支出為零，無法顯示支出分佈圖。")
 
     st.markdown("---")
 
