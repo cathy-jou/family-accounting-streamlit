@@ -178,7 +178,7 @@ def delete_transaction_from_db(db, doc_id):
 BASE_EXPENSE_CATEGORIES = ['飲食', '交通', '家庭', '娛樂', '教育', '其他']
 INCOME_CATEGORY = '收入'
 TRANSACTION_TYPES = ['支出', '收入']
-CUSTOM_OPTION = "⚙️ 新增自訂支出類別..." # 用於觸發自訂輸入框的選項
+CUSTOM_OPTION = "新增自訂類別..." # 用於觸發自訂輸入框的選項
 
 def main():
     
@@ -191,7 +191,7 @@ def main():
     # 注入 CSS 樣式
     set_ui_styles() 
     
-    st.title("宅宅家族記帳本 (雲端數據)")
+    st.title("宅宅家族記帳本")
 
     # 獲取所有交易數據 (每次 App 刷新時執行)
     df = get_all_transactions_from_db(db)
@@ -298,7 +298,7 @@ def main():
     default_start_date = max(first_day_of_current_month, min_date_in_data)
 
 
-    st.header("🔍 選擇查看日期範圍")
+    # st.header("🔍 選擇查看日期範圍")
 
     # 使用 st.date_input 選擇日期範圍，支援日曆點選
     date_range = st.date_input(
@@ -338,8 +338,8 @@ def main():
     # 確保篩選後的資料是以日期(最新到最舊)排序，保障顯示順序
     df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
-    # 更新標題顯示選擇的日期範圍
-    st.header(f" {start_date} 至 {end_date} 總結")
+    # # 更新標題顯示選擇的日期範圍
+    # st.header(f" {start_date} 至 {end_date} 總結")
     
     if df_filtered.empty:
         st.warning(f"在 {start_date} 至 {end_date} 範圍內沒有找到交易紀錄。請調整日期篩選條件。")
