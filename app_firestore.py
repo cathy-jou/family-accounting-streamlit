@@ -176,7 +176,7 @@ def main():
     # 注入 CSS 樣式
     set_ui_styles() 
     
-    st.title("宅宅家族記帳本 (雲端數據)")
+    st.title("宅宅家族記帳本")
 
     # 獲取所有交易數據 (每次 App 刷新時執行)
     df = get_all_transactions_from_db(db)
@@ -279,7 +279,7 @@ def main():
     default_start_date = max(first_day_of_current_month, min_date_in_data)
 
 
-    st.header("🔍 選擇查看日期範圍")
+    # st.header("🔍 選擇查看日期範圍")
 
     # 使用 st.date_input 選擇日期範圍，支援日曆點選
     date_range = st.date_input(
