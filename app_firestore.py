@@ -319,8 +319,8 @@ def main():
     # 確保篩選後的資料是以日期(最新到最舊)排序，保障顯示順序
     df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
-    # 更新標題顯示選擇的日期範圍
-    st.header(f" {start_date} 至 {end_date} 總結")
+    # # 更新標題顯示選擇的日期範圍
+    # st.header(f" {start_date} 至 {end_date} 總結")
     
     if df_filtered.empty:
         st.warning(f"在 {start_date} 至 {end_date} 範圍內沒有找到交易紀錄。請調整日期篩選條件。")
@@ -330,19 +330,19 @@ def main():
     col1, col2, col3 = st.columns(3)
     
     total_income = df_filtered[df_filtered['type'] == 'Income']['amount'].sum()
-    col1.metric("總收入 (綠色)", f"NT$ {total_income:,.0f}")
+    col1.metric("總收入", f"NT$ {total_income:,.0f}")
     
     total_expense = df_filtered[df_filtered['type'] == 'Expense']['amount'].sum()
-    col2.metric("總支出 (紅色)", f"NT$ {total_expense:,.0f}")
+    col2.metric("總支出", f"NT$ {total_expense:,.0f}")
     
     net_flow = total_income - total_expense
     flow_delta = f"{net_flow:,.0f}" # 顯示與零的差異
-    col3.metric("淨現金流 (藍色)", f"NT$ {net_flow:,.0f}", delta=flow_delta)
+    col3.metric("淨現金流", f"NT$ {net_flow:,.0f}", delta=flow_delta)
 
     st.markdown("---")
     
     # 3.2. 支出類別圖表
-    st.header("支出類別分佈 (灰階)")
+    st.header("支出類別分布")
     
     expense_data = df_filtered[df_filtered['type'] == 'Expense'].groupby('category')['amount'].sum().reset_index()
     
