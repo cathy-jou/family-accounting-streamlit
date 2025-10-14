@@ -215,14 +215,19 @@ def main():
     
     # 計算當月的第一天作為新的預設起始日期
     first_day_of_current_month = today.replace(day=1)
+    
+    # 修正點：確保預設的起始日期不會早於資料中最早的日期 (min_date_in_data)
+    # 如果資料比本月的第一天晚，則從資料的第一天開始預設範圍
+    default_start_date = max(first_day_of_current_month, min_date_in_data)
+
 
     st.header("🔍 選擇查看日期範圍")
 
     # 使用 st.date_input 選擇日期範圍，支援日曆點選
     date_range = st.date_input(
         "選擇起始與結束日期",
-        # 預設值變更為：當月的第一天到今天
-        value=(first_day_of_current_month, today),
+        # 預設值變更為：當月的第一天到今天 (但受限於最早的資料日期)
+        value=(default_start_date, today),
         min_value=min_date_in_data,
         max_value=today,
         key="date_range_picker"
