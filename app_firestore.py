@@ -171,7 +171,7 @@ def main():
     
     df_filtered = df[df['month_year'] == selected_month]
     
-    st.header(f"📊 {selected_month} 月份總結")
+    st.header(f" {selected_month} 月份總結")
     
     # 3.1. 總覽儀表板
     col1, col2, col3 = st.columns(3)
