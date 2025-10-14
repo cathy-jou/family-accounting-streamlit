@@ -91,7 +91,8 @@ def get_firestore_db():
         # 使用憑證初始化 Firestore 客戶端
         db = firestore.Client.from_service_account_info(creds)
         
-        # st.success("成功連線到 Firestore!")
+        # 移除 st.success 提示，讓介面更乾淨
+        # st.success("成功連線到 Firestore!") 
         return db
     except Exception as e:
         st.error(f"連線 Firestore 失敗，請檢查 .streamlit/secrets.toml 檔案: {e}")
@@ -176,7 +177,7 @@ def main():
     # 注入 CSS 樣式
     set_ui_styles() 
     
-    st.title("宅宅家族記帳本")
+    st.title("宅宅家族記帳本 (雲端數據)")
 
     # 獲取所有交易數據 (每次 App 刷新時執行)
     df = get_all_transactions_from_db(db)
@@ -279,7 +280,7 @@ def main():
     default_start_date = max(first_day_of_current_month, min_date_in_data)
 
 
-    # st.header("🔍 選擇查看日期範圍")
+    st.header("🔍 選擇查看日期範圍")
 
     # 使用 st.date_input 選擇日期範圍，支援日曆點選
     date_range = st.date_input(
@@ -319,8 +320,8 @@ def main():
     # 確保篩選後的資料是以日期(最新到最舊)排序，保障顯示順序
     df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
-    # # 更新標題顯示選擇的日期範圍
-    # st.header(f" {start_date} 至 {end_date} 總結")
+    # 更新標題顯示選擇的日期範圍
+    st.header(f" {start_date} 至 {end_date} 總結")
     
     if df_filtered.empty:
         st.warning(f"在 {start_date} 至 {end_date} 範圍內沒有找到交易紀錄。請調整日期篩選條件。")
@@ -330,45 +331,63 @@ def main():
     col1, col2, col3 = st.columns(3)
     
     total_income = df_filtered[df_filtered['type'] == 'Income']['amount'].sum()
-    col1.metric("總收入", f"NT$ {total_income:,.0f}")
+    col1.metric("總收入 (綠色)", f"NT$ {total_income:,.0f}")
     
     total_expense = df_filtered[df_filtered['type'] == 'Expense']['amount'].sum()
-    col2.metric("總支出", f"NT$ {total_expense:,.0f}")
+    col2.metric("總支出 (紅色)", f"NT$ {total_expense:,.0f}")
     
     net_flow = total_income - total_expense
     flow_delta = f"{net_flow:,.0f}" # 顯示與零的差異
-    col3.metric("淨現金流", f"NT$ {net_flow:,.0f}", delta=flow_delta)
+    col3.metric("淨現金流 (藍色)", f"NT$ {net_flow:,.0f}", delta=flow_delta)
 
     st.markdown("---")
     
     # 3.2. 支出類別圖表
-    st.header("支出類別分布")
+    # 標題維持不變
+    st.header("支出類別分佈")
     
     expense_data = df_filtered[df_filtered['type'] == 'Expense'].groupby('category')['amount'].sum().reset_index()
     
     if not expense_data.empty and total_expense > 0:
-        expense_data = expense_data.sort_values(by='amount', ascending=False)
         
-        # --- 使用 Altair 創建灰階條形圖 ---
-        chart = alt.Chart(expense_data).mark_bar().encode(
-            # X 軸：類別
-            x=alt.X('category', title='支出類別', sort='-y'),
-            # Y 軸：支出金額
-            y=alt.Y('amount', title='支出金額 (NT$)'),
-            # 顏色：根據金額大小使用不同的灰色深度 (灰階色盤)
-            color=alt.Color(
-                'amount', 
-                scale=alt.Scale(range=['lightgray', 'darkslategray']), # 設定從淺灰到深灰的範圍
-                legend=None # 隱藏圖例，因為顏色代表數值
-            ),
-            # tooltip：滑鼠懸停顯示細節
-            tooltip=['category', alt.Tooltip('amount', format=',.0f', title='總支出')]
+        # 計算百分比欄位，用於圓餅圖的 Tooltip
+        expense_data['percentage'] = expense_data['amount'] / total_expense
+        
+        # --------------------------------------
+        # --- 使用 Altair 創建圓餅圖 (甜甜圈圖) ---
+        # --------------------------------------
+        
+        # 1. 建立基礎圖表 (Pie Chart / Arc Mark)
+        base = alt.Chart(expense_data).encode(
+            # 角度/大小：依據金額
+            theta=alt.Theta("amount", stack=True)
         ).properties(
-            # 設定圖表標題
-            title="選定範圍內各類別支出金額分佈"
-        ).interactive() # 啟用互動式縮放和平移
-
+            title="支出類別金額佔比圓餅圖"
+        )
+        
+        # 2. 建立圓弧圖層
+        # 顏色：依據類別
+        # order：確保最大的扇形在起始位置
+        pie = base.mark_arc(outerRadius=120, innerRadius=60).encode( # 內半徑 60 形成甜甜圈效果
+            color=alt.Color("category", title="類別"),
+            order=alt.Order("amount", sort="descending"),
+            tooltip=[
+                "category", 
+                alt.Tooltip("amount", format=',.0f', title="總支出 (NT$)"),
+                # 顯示百分比
+                alt.Tooltip("percentage", format='.1%', title="佔比")
+            ]
+        )
+        
+        # 3. 建立文字標籤圖層 (顯示類別) - 可選，Altair 在圓餅圖上顯示標籤較為複雜，這裡先省略以保持簡潔
+        
+        # 4. 組合圖表並居中顯示
+        chart = pie.interactive()
+        
+        # 為了讓圓餅圖在 Streamlit 內置的容器中能保持正確的寬高比，
+        # 這裡設定較為固定的寬高，讓圓形居中顯示。
         st.altair_chart(chart, use_container_width=True)
+
         # --------------------------------------
         
     else:
