@@ -91,7 +91,7 @@ def get_firestore_db():
         # 使用憑證初始化 Firestore 客戶端
         db = firestore.Client.from_service_account_info(creds)
         
-        st.success("成功連線到 Firestore!")
+        # st.success("成功連線到 Firestore!")
         return db
     except Exception as e:
         st.error(f"連線 Firestore 失敗，請檢查 .streamlit/secrets.toml 檔案: {e}")
