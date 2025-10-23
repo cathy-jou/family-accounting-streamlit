@@ -134,7 +134,7 @@ def get_current_balance(db):
         return 0
 
 def update_balance(db, amount, is_income, current_balance):
-    """更新 Firestore 中的餘額"""
+    """更新 Firestore 中的餘額 (用於新增/刪除交易)"""
     try:
         new_balance = current_balance + amount if is_income else current_balance - amount
         
@@ -144,6 +144,18 @@ def update_balance(db, amount, is_income, current_balance):
         return True
     except Exception as e:
         st.error(f"更新餘額失敗: {e}")
+        return False
+
+def set_balance(db, new_balance):
+    """直接設定 Firestore 中的餘額，用於初始化或修正"""
+    try:
+        balance_ref = db.collection(BALANCE_COLLECTION_NAME).document(BALANCE_DOC_ID)
+        balance_ref.set({'balance': new_balance})
+        st.session_state.current_balance = new_balance
+        st.success(f"✅ 帳戶餘額已重設為 NT$ {new_balance:,.0f}！")
+        return True
+    except Exception as e:
+        st.error(f"設定餘額失敗: {e}")
         return False
 
 def add_record(db, record_data):
@@ -201,9 +213,8 @@ def fetch_all_records(db):
             
         df = pd.DataFrame(data)
         
-        # *** 修正點 1：如果 DataFrame 是空的，返回一個帶有預期欄位的空 DataFrame ***
+        # 如果 DataFrame 是空的，返回一個帶有預期欄位的空 DataFrame
         if df.empty:
-            # 必須包含所有預期欄位，尤其 'date'，以防止後續的日期操作報錯
             return pd.DataFrame(
                 [], 
                 columns=['date', 'type', 'category', 'amount', 'note', 'timestamp', 'id']
@@ -251,9 +262,36 @@ def main():
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # --------------------------------------
+    # 2. 初始餘額設定 (修復遺失的餘額輸入)
+    # --------------------------------------
+    
+    with st.expander("🛠️ 調整/設定初始帳戶餘額 (例如：銀行存款)", expanded=False):
+        with st.form(key='set_balance_form'):
+            # 讓使用者輸入新的餘額值
+            new_balance = st.number_input(
+                "新的帳戶餘額 (NT$)", 
+                min_value=0, 
+                step=1000, 
+                value=st.session_state.current_balance, # 預設為當前餘額
+                format="%d", 
+                key='new_balance_input'
+            )
+            
+            # 提交按鈕
+            submitted_balance = st.form_submit_button("設定餘額", type="secondary")
+            
+            if submitted_balance:
+                if new_balance >= 0:
+                    if set_balance(db, new_balance):
+                        st.rerun() # 重新運行以更新畫面
+                else:
+                    st.error("餘額不能為負值。")
+
 
     # --------------------------------------
-    # 2. 新增交易區 (修正類別選項不會隨著類型調整的問題)
+    # 3. 新增交易區 (保留上次的類別連動修正)
     # --------------------------------------
 
     st.header("新增交易紀錄")
@@ -319,21 +357,26 @@ def main():
                 st.error("請輸入有效的金額！")
 
     # --------------------------------------
-    # 3. 數據分析與紀錄顯示
+    # 4. 數據分析與紀錄顯示 (修復 AttributeError)
     # --------------------------------------
 
-    # *** 修正點 2：在進行任何需要 DataFrame 欄位的操作前，先檢查 DataFrame 是否為空 ***
-    if df_records.empty or 'date' not in df_records.columns:
-        st.info("當前沒有任何交易紀錄。請在上方新增一筆紀錄。")
-        # 即使沒有紀錄，也要確保下方的 UI 結構不會崩潰，所以我們在這裡跳過數據分析部分
-        return 
+    st.markdown("---") # 增加分隔線
 
-    # 3.1. 篩選控制項
+    if df_records.empty:
+        st.info("當前沒有任何交易紀錄，請在上方新增一筆紀錄。")
+        # 如果是空的，直接跳出分析和紀錄顯示區塊，避免對空 DataFrame 進行操作
+        return 
+        
+    # --- 只有當有紀錄時，才執行以下分析和篩選邏輯 ---
+
+    # 4.1. 篩選控制項
     st.header("數據篩選")
     
     # 篩選月份的 Sidebar
     st.sidebar.title("📅 月份篩選")
-    # 此處 df_records 已經被 fetch_all_records 確保有 'date' 欄位，故不會報錯
+    
+    # *** 修正點：只在 df_records 非空時計算月份 ***
+    # 此處 df_records 確定不是空的，不會報錯
     all_months = df_records['date'].dt.to_period('M').unique().sort_values(ascending=False)
     month_options = [m.strftime('%Y-%m') for m in all_months]
     month_options.insert(0, '所有月份')
@@ -348,9 +391,10 @@ def main():
     df_filtered = df_records.copy()
     if selected_month_str != '所有月份':
         selected_month = pd.to_datetime(selected_month_str).to_period('M')
+        # 確保過濾條件是針對 'date' 欄位
         df_filtered = df_filtered[df_filtered['date'].dt.to_period('M') == selected_month]
 
-    # 3.2. 支出分佈圓餅圖 (只顯示支出)
+    # 4.2. 支出分佈圓餅圖 (只顯示支出)
     df_expense = df_filtered[df_filtered['type'] == '支出']
     
     if not df_expense.empty and df_expense['amount'].sum() > 0:
@@ -361,28 +405,24 @@ def main():
         df_pie.rename(columns={'amount': '總金額', 'category': '類別'}, inplace=True)
         
         # 使用 Altair 建立圓餅圖
-        # 1. 建立基礎圖表
         base = alt.Chart(df_pie).encode(
             theta=alt.Theta("總金額", stack=True)
         ).properties(
             title=f"{selected_month_str} 總支出: NT$ {df_expense['amount'].sum():,.0f}"
         )
         
-        # 2. 建立弧形 (圓餅)
         pie = base.mark_arc(outerRadius=120, innerRadius=50).encode(
             color=alt.Color("類別"),
             order=alt.Order("總金額", sort="descending"),
-            tooltip=["類別", "總金額", alt.Tooltip("總金額", format=".1%")] # 加入百分比的 Tooltip
+            tooltip=["類別", "總金額", alt.Tooltip("總金額", format=".1%")] 
         )
         
-        # 3. 加入文字標籤
         text = base.mark_text(radius=140).encode(
-            text=alt.Text("總金額", format="~s"), # 顯示金額 (簡化格式)
+            text=alt.Text("總金額", format="~s"), 
             order=alt.Order("總金額", sort="descending"),
             color=alt.value("black") 
         )
         
-        # 4. 組合圖表並居中顯示
         chart = (pie + text).interactive()
         
         st.altair_chart(chart, use_container_width=True)
@@ -395,7 +435,7 @@ def main():
 
     st.markdown("---")
 
-    # 3.3. 交易紀錄區 (新增刪除按鈕)
+    # 4.3. 交易紀錄區 (新增刪除按鈕)
     st.header("完整交易紀錄")
     
     # 準備用於顯示和刪除的 DataFrame
@@ -429,7 +469,7 @@ def main():
         
         # 使用 container 和 columns 創建行布局
         with st.container():
-            # 調整 st.columns 比例
+            # 調整 st.columns 比例，使備註欄位有足夠的空間
             col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([1.2, 1, 1, 0.7, 6, 1])
             
             # 使用 st.write 顯示交易細節
@@ -452,3 +492,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
