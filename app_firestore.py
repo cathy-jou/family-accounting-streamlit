@@ -44,419 +44,351 @@ def set_ui_styles():
             font-size: 1.5rem; 
             font-weight: 600;
             color: #495057;
-            border-bottom: 2px solid #e9ecef;
+            border-bottom: 2px solid #e9ecef; /* 添加簡約底線 */
             padding-bottom: 0.5rem;
             margin-top: 2rem;
             margin-bottom: 1.5rem;
         }}
-
-        /* 主要背景色 */
+        
+        /* 設定 Streamlit 容器背景色 */
         .stApp {{
             background-color: {DEFAULT_BG_COLOR};
         }}
 
         /* 調整按鈕樣式 */
         .stButton>button {{
-            border-radius: 8px;
+            width: 100%;
+            border-radius: 0.5rem;
             font-weight: 600;
+            transition: all 0.2s;
+        }}
+        /* 刪除按鈕 (Secondary) 樣式 */
+        .stButton>button[kind="secondary"] {{
+            background-color: #ffc107; /* 警告黃色 */
+            color: #212529; /* 深色文字 */
+            border: none;
+        }}
+        .stButton>button[kind="secondary"]:hover {{
+            background-color: #e0a800; /* 較深的黃色 */
+            color: #212529;
+        }}
+
+        /* 調整輸入框樣式 */
+        .stTextInput>div>div>input, .stSelectbox>div>div, .stDateInput>div>div>input {{
+            border-radius: 0.5rem;
         }}
         
-        /* 隱藏 Streamlit 預設的 footer/menu */
+        /* 隱藏 Streamlit 預設的 footer 和 header */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         header {{visibility: hidden;}}
-        
-        /* 調整 st.columns 內的間距 */
-        .st-emotion-cache-12ttj6z {{ /* Streamlit column style class */
-            padding-top: 0rem;
-            padding-bottom: 0rem;
-        }}
-        
-        /* 調整訊息框的樣式 */
-        .stAlert {{
-            border-radius: 8px;
-        }}
-        
-        /* 讓表格標題列看起來更整潔 */
-        .header-row {{
-            font-weight: bold; 
-            background-color: #e9ecef; 
-            padding: 10px 1rem; 
-            border-radius: 5px; 
-            margin-top: 10px;
-            display: flex;
-        }}
+
         </style>
     """
     st.markdown(css, unsafe_allow_html=True)
     
-# --- 2. Firestore 數據操作函數 ---
-
-@st.cache_resource
-def get_firestore_db():
-    """初始化並快取 Firestore 客戶端"""
+# --- 2. Firestore 服務設定與輔助函數 ---
+def init_firestore():
+    """初始化 Firestore 客戶端和身份驗證"""
+    db = None
+    user_id = 'default_user'
+    
+    # 嘗試從環境變數獲取配置和 App ID
     try:
-        # 使用 Streamlit Secrets 進行認證
-        if st.secrets.get("gcp_service_account"):
-            # 確保使用 Streamlit Cloud 環境提供的認證
-            db = firestore.Client.from_service_account_info(st.secrets["gcp_service_account"])
-        else:
-            # 適用於本地測試或其他環境
+        if 'db' not in st.session_state:
+            # 假設 Firebase 已經在 Streamlit 環境中配置好
             db = firestore.Client()
-        return db
+            st.session_state.db = db
+            st.session_state.user_id = user_id # 在 Streamlit 環境中，我們使用預設 ID 或自定義 ID
+            
+        return st.session_state.db, st.session_state.user_id
     except Exception as e:
-        st.error(f"Firestore 初始化失敗: {e}")
-        st.stop()
-        
-db = get_firestore_db()
+        # 在本地運行時，如果沒有配置 Google Cloud 憑證，這裡會報錯
+        st.error(f"Firestore 初始化失敗。請檢查您的 Google Cloud 環境配置。錯誤: {e}")
+        return None, user_id
 
-def get_balance(db, user_id):
-    """從 Firestore 獲取當前帳戶餘額"""
-    try:
-        doc_ref = db.collection(BALANCE_COLLECTION_NAME).document(BALANCE_DOC_ID)
-        doc = doc_ref.get()
-        if doc.exists:
-            # 餘額儲存於 documents/account_status/current_balance 內
-            # 並假設餘額儲存在 'balance' 欄位，類型為數字
-            balance_data = doc.to_dict().get('users', {}).get(user_id, {})
-            current_balance = balance_data.get('balance', 0.0)
-            return float(current_balance)
-        else:
-            # 如果文件不存在，代表第一次使用，初始化餘額
-            return 0.0
-    except Exception as e:
-        st.error(f"獲取餘額失敗: {e}")
-        return 0.0
-
-def update_balance(db, user_id, new_balance):
-    """更新 Firestore 中的帳戶餘額"""
-    try:
-        doc_ref = db.collection(BALANCE_COLLECTION_NAME).document(BALANCE_DOC_ID)
-        # 由於是多用戶應用，餘額應該存儲在以 user_id 為鍵的 map 中
-        doc_ref.set({
-            'users': {
-                user_id: {'balance': float(new_balance), 'last_update': firestore.SERVER_TIMESTAMP}
-            }
-        }, merge=True)
-        return True
-    except Exception as e:
-        st.error(f"更新餘額失敗: {e}")
-        return False
-
-def add_record(db, user_id, record):
-    """新增一筆交易紀錄到 Firestore"""
-    try:
-        # 新增交易紀錄到 /artifacts/{appId}/users/{userId}/records
-        collection_path = f"artifacts/{st.session_state['app_id']}/users/{user_id}/{RECORD_COLLECTION_NAME}"
-        doc_ref = db.collection(collection_path).document(str(uuid.uuid4()))
-        doc_ref.set(record)
-        return True
-    except Exception as e:
-        st.error(f"新增紀錄失敗: {e}")
-        return False
-
+@st.cache_data(ttl=5) # 緩存資料，每 5 秒更新一次
 def get_records(db, user_id):
-    """從 Firestore 獲取所有交易紀錄並轉換為 DataFrame"""
-    try:
-        # 從 /artifacts/{appId}/users/{userId}/records 獲取紀錄
-        collection_path = f"artifacts/{st.session_state['app_id']}/users/{user_id}/{RECORD_COLLECTION_NAME}"
-        records = []
-        docs = db.collection(collection_path).stream()
+    """從 Firestore 獲取所有交易紀錄和當前餘額"""
+    
+    # 獲取餘額
+    balance_ref = db.collection(BALANCE_COLLECTION_NAME).document(BALANCE_DOC_ID)
+    balance_doc = balance_ref.get()
+    current_balance = balance_doc.to_dict().get('amount', 0) if balance_doc.exists else 0
+
+    # 獲取交易紀錄
+    records_ref = db.collection(RECORD_COLLECTION_NAME)
+    docs = records_ref.stream()
+    
+    records_list = []
+    for doc in docs:
+        record = doc.to_dict()
+        record['id'] = doc.id
+        # 將 Firestore Timestamp 轉換為 Python datetime.date
+        if isinstance(record.get('date'), datetime.datetime):
+            record['date'] = record['date'].date()
+        elif not isinstance(record.get('date'), datetime.date):
+             # 處理日期丟失或格式不正確的情況，給一個默認日期
+            record['date'] = datetime.date.today()
         
-        for doc in docs:
-            record = doc.to_dict()
-            record['id'] = doc.id
-            
-            # 將 Firestore Timestamp 轉換為 Python datetime
-            if isinstance(record.get('date'), firestore.client.base_client.ServerTimestamp):
-                 record['date'] = record['date'].get().to_datetime()
-            elif isinstance(record.get('date'), datetime.datetime):
-                pass
-            else:
-                 # 處理其他可能的日期格式（例如字串），如果需要
-                 record['date'] = datetime.datetime.now() # 避免程式崩潰，給一個預設值
-
-            records.append(record)
-            
-        if not records:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(records)
-        df['date'] = pd.to_datetime(df['date']) # 確保日期是 datetime 類型
-        df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0).astype(int) # 確保金額是整數
+        records_list.append(record)
+    
+    # 轉換為 DataFrame 並按日期降序排序
+    if records_list:
+        df_records = pd.DataFrame(records_list)
+        df_records.sort_values(by='date', ascending=False, inplace=True)
+    else:
+        df_records = pd.DataFrame(columns=['id', 'date', 'category', 'amount', 'type', 'note'])
         
-        # 排序：最新紀錄在前
-        df.sort_values(by='date', ascending=False, inplace=True)
-        return df
+    return df_records, current_balance
 
-    except Exception as e:
-        st.error(f"獲取交易紀錄失敗: {e}")
-        return pd.DataFrame()
-
-def delete_record(db, user_id, record_id, record_type, record_amount, current_balance):
-    """刪除一筆交易紀錄並更新餘額"""
-    try:
-        # 刪除交易紀錄
-        collection_path = f"artifacts/{st.session_state['app_id']}/users/{user_id}/{RECORD_COLLECTION_NAME}"
-        db.collection(collection_path).document(record_id).delete()
+def add_record(db, record_data, current_balance):
+    """添加新的交易紀錄並更新餘額，使用 Firestore 事務確保原子性"""
+    
+    record_ref = db.collection(RECORD_COLLECTION_NAME).document(str(uuid.uuid4()))
+    balance_ref = db.collection(BALANCE_COLLECTION_NAME).document(BALANCE_DOC_ID)
+    
+    @firestore.transactional
+    def update_in_transaction(transaction, record_ref, balance_ref, record_data):
+        """在事務中更新 Firestore 數據"""
         
-        # 反向計算新的餘額
+        # 1. 讀取現有餘額
+        balance_doc = balance_ref.get(transaction=transaction)
+        old_balance = balance_doc.to_dict().get('amount', 0) if balance_doc.exists else 0
+
+        # 2. 計算新餘額
+        amount = record_data['amount']
+        record_type = record_data['type']
+        
         if record_type == '收入':
-            new_balance = current_balance - record_amount
-        elif record_type == '支出':
-            new_balance = current_balance + record_amount
-        else:
-            new_balance = current_balance # 未知類型，餘額不變
+            new_balance = old_balance + amount
+        else: # 支出
+            new_balance = old_balance - amount
             
-        # 更新 Firestore 餘額
-        update_balance(db, user_id, new_balance)
-        st.session_state['current_balance'] = new_balance # 更新 session state
+        # 3. 寫入新紀錄和新餘額
+        transaction.set(record_ref, record_data)
+        transaction.set(balance_ref, {'amount': new_balance})
         
-        st.rerun() # 重新執行應用程式以刷新數據
-        return True
+        return new_balance
+
+    try:
+        transaction = db.transaction()
+        new_balance = update_in_transaction(transaction, record_ref, balance_ref, record_data)
+        st.session_state.current_balance = new_balance
+        st.success("✅ 交易紀錄添加成功並已更新餘額!")
     except Exception as e:
-        st.error(f"刪除紀錄失敗: {e}")
-        return False
+        st.error(f"❌ 交易添加失敗: {e}")
 
-# --- 3. 主應用程式邏輯 ---
+def delete_record(db, record_id, record_type, record_amount, current_balance):
+    """刪除交易紀錄並反向更新餘額，使用 Firestore 事務確保原子性"""
+    
+    record_ref = db.collection(RECORD_COLLECTION_NAME).document(record_id)
+    balance_ref = db.collection(BALANCE_COLLECTION_NAME).document(BALANCE_DOC_ID)
+
+    @firestore.transactional
+    def delete_in_transaction(transaction, record_ref, balance_ref, record_type, record_amount):
+        """在事務中更新 Firestore 數據"""
+        
+        # 1. 讀取現有餘額
+        balance_doc = balance_ref.get(transaction=transaction)
+        old_balance = balance_doc.to_dict().get('amount', 0) if balance_doc.exists else 0
+        
+        # 2. 計算新餘額 (反向操作)
+        if record_type == '收入':
+            # 刪除收入: 餘額減少
+            new_balance = old_balance - record_amount
+        else: # 刪除支出
+            # 刪除支出: 餘額增加
+            new_balance = old_balance + record_amount
+            
+        # 3. 刪除紀錄並寫入新餘額
+        transaction.delete(record_ref)
+        transaction.set(balance_ref, {'amount': new_balance})
+        
+        return new_balance
+
+    try:
+        transaction = db.transaction()
+        new_balance = delete_in_transaction(transaction, record_ref, balance_ref, record_type, record_amount)
+        st.session_state.current_balance = new_balance
+        st.toast("🗑️ 交易紀錄已刪除，餘額已反向更新!", icon="✅")
+        # 刪除後需要刷新 Streamlit (重新運行腳本)
+        st.rerun() 
+    except Exception as e:
+        st.error(f"❌ 交易刪除失敗: {e}")
+        
+# --- 3. Streamlit 主邏輯 ---
+
 def main():
-    
-    # 設置 UI 樣式
+    """應用程式主函數"""
     set_ui_styles()
+    
+    st.title("💸 家庭記帳本 (Firestore 存儲)")
+    
+    # 初始化 Firestore 連線
+    db, user_id = init_firestore()
+    if db is None:
+        return # 如果連接失敗，停止執行
 
-    st.title("家庭記帳本 📝")
+    # 獲取交易紀錄和餘額
+    df_records, current_balance = get_records(db, user_id)
     
-    # --------------------------------------
-    # 2. 認證與初始化
-    # --------------------------------------
-    
-    # 獲取全局變量 (Streamlit Cloud Canvas 環境提供)
-    app_id = typeof(__app_id) !== 'undefined' ? __app_id : 'default-app-id'
-    st.session_state['app_id'] = app_id
-    
-    # 假設 Streamlit 內建認證機制已經設置並將 user_id 存儲在 session_state
-    # 如果是 Canvas 環境，這通常是 `auth.currentUser.uid`
-    # 在這個模擬環境中，我們使用一個預設的 ID
-    if 'user_id' not in st.session_state:
-        # 在實際的 Firebase 應用中，這裡應該是 Firebase Auth 的 UID
-        st.session_state['user_id'] = "anonymous_user_001" 
-        
-    user_id = st.session_state['user_id']
+    # 將當前餘額存入 session_state，用於刪除操作後的餘額更新顯示
+    if 'current_balance' not in st.session_state or st.session_state.current_balance != current_balance:
+        st.session_state.current_balance = current_balance
 
-    st.sidebar.markdown(f"**用戶 ID:** `{user_id}`")
-    
-    # --------------------------------------
-    # 3. 數據獲取與處理
-    # --------------------------------------
-    
-    # 3.1. 獲取並顯示餘額
-    if 'current_balance' not in st.session_state:
-        st.session_state['current_balance'] = get_balance(db, user_id)
-        
-    current_balance = st.session_state['current_balance']
-    balance_color = "#28a745" if current_balance >= 0 else "#dc3545"
-
+    # 3.1. 餘額顯示
+    st.header("當前餘額")
     st.markdown(
-        f"""
-        <div style='text-align: center; background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 2rem;'>
-            <h2 style='border-bottom: none; margin-bottom: 0.5rem; color: #6c757d; font-size: 1.2rem;'>
-                當前帳戶餘額 (NT$)
-            </h2>
-            <p style='font-size: 3.5rem; font-weight: 700; color: {balance_color}; margin: 0;'>
-                NT$ {current_balance:,.0f}
-            </p>
-        </div>
-        """, unsafe_allow_html=True
+        f"<div style='font-size: 2.5rem; font-weight: 700; color: #007bff; text-align: center; background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>NTD {st.session_state.current_balance:,.0f}</div>", 
+        unsafe_allow_html=True
     )
-    
-    # 3.2. 交易紀錄表格
-    df_records = get_records(db, user_id)
-    
-    # --------------------------------------
-    # 4. 新增交易區 (表單)
-    # --------------------------------------
-    st.subheader("新增交易")
-    with st.form(key='add_record_form'):
-        
-        # 頂部欄位：日期、類型、金額
-        cols_top = st.columns([1, 1, 1.5])
-        
-        record_date = cols_top[0].date_input(
-            "日期", 
-            value=datetime.date.today(), 
-            key='record_date'
-        )
-        
-        record_type = cols_top[1].selectbox(
-            "類型", 
-            options=list(CATEGORIES.keys()), 
-            key='record_type'
-        )
-        
-        record_amount = cols_top[2].number_input(
-            "金額 (NT$)", 
-            min_value=1, 
-            value=100, 
-            step=10,
-            key='record_amount'
-        )
-        
-        # 底部欄位：類別、備註
-        cols_bottom = st.columns([1, 2])
-        
-        # 根據選擇的類型動態更新類別選項
-        category_options = CATEGORIES.get(record_type, [])
-        record_category = cols_bottom[0].selectbox(
-            "類別", 
-            options=category_options, 
-            key='record_category'
-        )
-        
-        record_note = cols_bottom[1].text_input(
-            "備註 (選填)", 
-            key='record_note'
-        )
-        
-        submit_button = st.form_submit_button("新增紀錄", type="primary")
+    st.markdown("---")
 
-        if submit_button:
-            if not record_amount or not record_category:
-                st.error("請填寫金額和類別！")
+
+    # 3.2. 新增交易區塊
+    st.header("新增交易紀錄")
+    
+    # 使用 st.form 確保輸入不會在每次按鍵時重繪
+    with st.form("new_record_form", clear_on_submit=True):
+        
+        col1, col2 = st.columns([1, 1])
+        record_type = col1.radio("類型", ['支出', '收入'], horizontal=True)
+        
+        # 根據類型動態更新類別選項
+        category_options = CATEGORIES[record_type]
+        category = col2.selectbox("類別", category_options)
+        
+        col3, col4 = st.columns([1, 1])
+        amount = col3.number_input("金額 (NTD)", min_value=1, step=100, format="%d")
+        date = col4.date_input("日期", datetime.date.today())
+        
+        note = st.text_input("備註 (可選)", placeholder="例如: 晚餐費用、本月薪水")
+        
+        submitted = st.form_submit_button("💾 儲存紀錄", type="primary")
+        
+        if submitted:
+            if amount is None or amount <= 0:
+                st.error("金額必須大於零。")
             else:
-                # 建立新紀錄
                 new_record = {
-                    'date': datetime.datetime.combine(record_date, datetime.time()), # 轉換為 datetime 物件
+                    'date': date,
+                    'category': category,
+                    'amount': amount,
                     'type': record_type,
-                    'amount': int(record_amount),
-                    'category': record_category,
-                    'note': record_note
+                    'note': note,
+                    # 'user_id': user_id # 暫時不需要，因為所有數據都在同一 Collection
                 }
-                
-                # 計算新餘額
-                if record_type == '收入':
-                    new_balance = current_balance + record_amount
-                elif record_type == '支出':
-                    new_balance = current_balance - record_amount
-                else:
-                    new_balance = current_balance
-                
-                # 執行寫入操作
-                if add_record(db, user_id, new_record) and update_balance(db, user_id, new_balance):
-                    st.success(f"成功新增 {record_type}：NT$ {record_amount:,.0f}，新餘額為 NT$ {new_balance:,.0f}")
-                    # 更新 session state
-                    st.session_state['current_balance'] = new_balance
-                    st.rerun()
-                else:
-                    st.error("新增紀錄失敗，請檢查網路連線或權限。")
-
-    st.markdown("---")
-    
-    # --------------------------------------
-    # 5. 餘額調整區
-    # --------------------------------------
-    st.subheader("餘額調整")
-    with st.expander("設定/調整帳戶餘額", expanded=False):
-        # 從 st.session_state 獲取當前餘額作為預設值
-        current_balance_value = st.session_state.get('current_balance', 0)
-
-        # 修正點：將 min_value 從 0 調整為較大的負數，以允許負數餘額作為預設值
-        # 避免當 current_balance_value < 0 時拋出 StreamlitValueBelowMinError
-        new_balance = st.number_input(
-            "新的帳戶餘額 (NT$)",
-            min_value=-1_000_000_000,  # 允許負數餘額 (例如：負債)，避免當前餘額為負時報錯
-            value=current_balance_value,
-            step=100,
-            format="%d",
-            key='new_balance_input'
-        )
-
-        if st.button("更新餘額", key='update_balance_btn', type="secondary"):
-            if update_balance(db, user_id, new_balance):
-                st.success(f"帳戶餘額已更新為 NT$ {new_balance:,.0f}")
-                st.session_state['current_balance'] = new_balance
+                add_record(db, new_record, st.session_state.current_balance)
+                # 儲存後立即重新運行以刷新數據和圖表
                 st.rerun()
-            else:
-                st.error("更新餘額失敗。")
 
     st.markdown("---")
+
+    # 3.3. 儀表板與篩選
+    st.header("數據儀表板")
     
-    # --------------------------------------
-    # 6. 數據分析與展示區
-    # --------------------------------------
-    st.subheader("交易紀錄與分析")
-    
-    if df_records.empty:
-        st.info("目前尚無交易紀錄。")
-        return # 如果沒有紀錄，則不執行後續的分析和表格顯示
-        
-    # 6.1. 篩選控制項
-    st.markdown("##### 篩選範圍")
+    # 日期篩選器
+    st.subheader("篩選時間範圍")
     col_start, col_end = st.columns(2)
     
-    # 確保日期範圍有效
-    min_date = df_records['date'].min().date() if not df_records.empty else datetime.date.today()
-    max_date = df_records['date'].max().date() if not df_records.empty else datetime.date.today()
+    # 設置篩選範圍的默認值
+    min_date = df_records['date'].min() if not df_records.empty else datetime.date.today()
+    max_date = df_records['date'].max() if not df_records.empty else datetime.date.today()
     
-    # 預設篩選範圍為近一個月 (如果紀錄足夠多)
-    default_start_date = max(min_date, max_date - datetime.timedelta(days=30))
-    
-    start_date = col_start.date_input("開始日期", value=default_start_date, min_value=min_date, max_value=max_date)
-    end_date = col_end.date_input("結束日期", value=max_date, min_value=min_date, max_value=max_date)
+    # 確保開始日期不晚於結束日期，如果數據為空，則默認顯示今天
+    if min_date > max_date:
+        start_date = max_date
+        end_date = max_date
+    else:
+        start_date = col_start.date_input("起始日期", min_date)
+        end_date = col_end.date_input("結束日期", max_date)
+        
+    if start_date > end_date:
+        st.warning("起始日期不能晚於結束日期。請重新選擇。")
+        # 如果日期無效，則不進行後續計算和顯示
+        df_filtered = pd.DataFrame()
+    else:
+        # 篩選數據
+        df_filtered = df_records[
+            (df_records['date'] >= start_date) & 
+            (df_records['date'] <= end_date)
+        ]
 
-    # 篩選數據
-    df_filtered = df_records[
-        (df_records['date'].dt.date >= start_date) & 
-        (df_records['date'].dt.date <= end_date)
-    ].copy()
-    
-    if df_filtered.empty:
-        st.info("在選定的日期範圍內沒有交易紀錄。")
-        return
-    
-    # 6.2. 支出分佈圓餅圖
-    st.header("支出分佈 (圓餅圖)")
+    # 顯示總結
+    if not df_filtered.empty:
+        total_income = df_filtered[df_filtered['type'] == '收入']['amount'].sum()
+        total_expense = df_filtered[df_filtered['type'] == '支出']['amount'].sum()
+        
+        st.subheader("期間總結")
+        summary_cols = st.columns(3)
+        
+        summary_cols[0].metric(
+            label="總收入", 
+            value=f"NTD {total_income:,.0f}", 
+            delta_color="off"
+        )
+        summary_cols[1].metric(
+            label="總支出", 
+            value=f"NTD {total_expense:,.0f}", 
+            delta_color="off"
+        )
+        summary_cols[2].metric(
+            label="淨額 (收 - 支)", 
+            value=f"NTD {total_income - total_expense:,.0f}", 
+            delta_color="off"
+        )
+    else:
+        st.info("選定範圍內無交易紀錄。")
 
-    # 篩選出支出紀錄
+    st.markdown("---")
+    
+    # 3.3.1. 支出分佈圖
+    st.subheader("支出分佈圖 (按類別)")
+    
     df_expense = df_filtered[df_filtered['type'] == '支出'].copy()
     
     if not df_expense.empty and df_expense['amount'].sum() > 0:
-        # 1. 數據分組：計算每個類別的總支出
+        
+        # 計算各類別支出總和
         df_category_sum = df_expense.groupby('category')['amount'].sum().reset_index()
-        df_category_sum.rename(columns={'amount': '總支出'}, inplace=True)
+        df_category_sum.rename(columns={'amount': 'total_amount'}, inplace=True)
         
-        # 2. 計算百分比
-        total_expense = df_category_sum['總支出'].sum()
-        df_category_sum['percent'] = df_category_sum['總支出'] / total_expense
-        df_category_sum['label'] = df_category_sum.apply(
-            lambda row: f"{row['category']} ({row['percent']:.1%})", 
-            axis=1
-        )
+        # 計算百分比
+        total_expense = df_category_sum['total_amount'].sum()
+        df_category_sum['percentage'] = df_category_sum['total_amount'] / total_expense
+        
+        # 為了美觀，將金額轉換為字串，用於工具提示 (tooltip)
+        df_category_sum['amount_label'] = df_category_sum['total_amount'].apply(lambda x: f"NTD {x:,.0f}")
+        df_category_sum['percentage_label'] = df_category_sum['percentage'].apply(lambda x: f"{x:.1%}")
 
-        # 3. Altair 圖表設定 (使用交互式圓餅圖)
-        
-        # 基礎圓餅圖 (使用 Theta 來編碼角度)
+        # 1. 基礎圖表設定
         base = alt.Chart(df_category_sum).encode(
-            theta=alt.Theta("總支出", stack=True)
-        )
-
-        # 顏色編碼
-        pie = base.mark_arc(outerRadius=120, innerRadius=40).encode(
-            color=alt.Color("category", title="支出類別"),
-            order=alt.Order("總支出", sort="descending"),
-            tooltip=["category", alt.Tooltip("總支出", format=",.0f"), alt.Tooltip("percent", format=".1%")]
-        ).properties(
-            title="選定期間支出佔比"
+            theta=alt.Theta("total_amount", stack=True)
         )
         
-        # 標籤文本 (顯示百分比)
+        # 2. 圓餅圖/甜甜圈圖
+        pie = base.mark_arc(outerRadius=120, innerRadius=50).encode(
+            color=alt.Color("category", title="支出類別"),
+            order=alt.Order("total_amount", sort="descending"),
+            tooltip=[
+                alt.Tooltip("category", title="類別"),
+                alt.Tooltip("amount_label", title="總金額"),
+                alt.Tooltip("percentage_label", title="佔比")
+            ],
+            # 增加一個透明度編碼，用於互動 (滑鼠懸停效果)
+            opacity=alt.condition(alt.datum.category, alt.value(0.9), alt.value(0.5))
+        )
+        
+        # 3. 文本標籤 (顯示類別) - 可選
         text = base.mark_text(radius=140).encode(
-            text=alt.Text("percent", format=".1%"),
-            order=alt.Order("總支出", sort="descending"),
-            color=alt.value("black") 
+            text=alt.Text("category"),
+            order=alt.Order("total_amount", sort="descending"),
+            color=alt.value("black")
         )
         
         # 4. 組合圖表並居中顯示
-        chart = pie.interactive()
+        chart = pie # (pie + text) 帶文本標籤可能會導致重疊，暫時只顯示圓餅圖
         
         # 為了讓圓餅圖在 Streamlit 內置的容器中能保持正確的寬高比，
         # 這裡設定較為固定的寬高，讓圓形居中顯示。
@@ -468,23 +400,27 @@ def main():
         st.info("選定範圍內無支出紀錄或總支出為零，無法顯示支出分佈圖。")
 
     st.markdown("---")
-
-    # 6.3. 交易紀錄區 (新增刪除按鈕)
+    
+    # 3.4. 交易紀錄區 (新增刪除按鈕)
     st.header("完整交易紀錄")
     
-    # 準備用於顯示和刪除的 DataFrame
-    display_df = df_filtered.copy()
+    if df_filtered.empty:
+        st.info("選定範圍內無交易紀錄。")
+        return
+
+    # 準備用於顯示的 DataFrame，只包含需要的欄位
+    display_df = df_filtered[['id', 'date', 'category', 'amount', 'type', 'note']].copy()
     
-    # 標題列
+    # 標題列 (使用 Markdown/HTML 保持一致的欄位視覺對齊)
     st.markdown(
         f"""
         <div style='display: flex; font-weight: bold; background-color: #e9ecef; padding: 10px 0; border-radius: 5px; margin-top: 10px;'>
-            <div style='width: 12%; padding-left: 1rem;'>日期</div>
-            <div style='width: 10%;'>類別</div>
-            <div style='width: 10%;'>金額</div>
-            <div style='width: 7%;'>類型</div>
-            <div style='width: 50%;'>備註</div>
-            <div style='width: 10%; text-align: center;'>操作</div>
+            <div style='width: 11.5%; padding-left: 1rem;'>日期</div>
+            <div style='width: 9.2%;'>類別</div>
+            <div style='width: 9.2%;'>金額</div>
+            <div style='width: 6.4%;'>類型</div>
+            <div style='width: 48.6%;'>備註</div>
+            <div style='width: 9.2%; text-align: center;'>操作</div>
         </div>
         """, unsafe_allow_html=True
     )
@@ -492,10 +428,11 @@ def main():
     # 數據列
     for index, row in display_df.iterrows():
         try:
-            # 從完整的紀錄中獲取刪除所需的資訊 (避免篩選後的 df 缺少必要欄位)
-            # 這裡我們直接使用 row['id'] 即可，因為 display_df 是 df_filtered 的副本，它包含 'id'
+            # 從完整的紀錄中獲取刪除所需的資訊
+            # 這裡使用 row['id']，因為 display_df 是 df_filtered 的子集，包含了 'id'
             record_details_for_delete = df_records[df_records['id'] == row['id']].iloc[0].to_dict()
         except IndexError:
+            # 如果找不到原始紀錄，則跳過，避免刪除時報錯
             st.error(f"找不到文件ID為 {row['id']} 的原始紀錄，可能已被刪除。")
             continue
             
@@ -504,9 +441,9 @@ def main():
         
         # 使用 container 和 columns 創建行布局
         with st.container():
-            # 調整 st.columns 比例，使備註欄位有足夠的空間
-            # 比例: [日期 1.2, 類別 1, 金額 1, 類型 0.7, 備註 6, 操作 1] (總和 10.9)
-            col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([1.2, 1, 1, 0.7, 6, 1])
+            # **修正點: 調整 st.columns 比例，使總和為 10.0 (1.2 + 1 + 1 + 0.7 + 5.3 + 0.8 = 10.0)**
+            # 這解決了 StreamlitAPIException 的問題。
+            col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([1.2, 1, 1, 0.7, 5.3, 0.8])
             
             # 使用 st.write 顯示交易細節
             col_date.write(row['date'].strftime('%Y-%m-%d'))
@@ -519,17 +456,16 @@ def main():
             if col_btn_action.button("刪除", key=f"delete_{row['id']}", type="secondary", help="刪除此筆交易紀錄並更新餘額"):
                 delete_record(
                     db=db,
-                    user_id=user_id,
                     record_id=row['id'],
                     record_type=record_details_for_delete['type'],
                     record_amount=record_details_for_delete['amount'],
-                    current_balance=st.session_state['current_balance']
+                    current_balance=st.session_state.current_balance
                 )
     
-    # 確保底部有足夠間距
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    # 重新執行主函數以確保 Streamlit 刷新 (由於 st.button 按下後會執行整個腳本)
+    # 這裡不需要額外的 st.rerun()，因為 delete_record 已經包含了它。
+    
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 
