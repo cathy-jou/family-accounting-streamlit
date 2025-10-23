@@ -245,35 +245,46 @@ def main():
     """, unsafe_allow_html=True)
 
     # --------------------------------------
-    # 2. 新增交易區
+    # 2. 新增交易區 (修正類別選項不會隨著類型調整的問題)
     # --------------------------------------
 
     st.header("新增交易紀錄")
     
-    # 建立一個表單
+    # **修正點 1: 將 type_select 移到表單外，使其立即觸發 Streamlit 重新運行**
+    # 使用 session_state 來儲存 type_select 的值，確保它在表單內外同步
+    type_col, amount_col = st.columns([1, 1])
+    
+    with type_col:
+        # **使用 key='type_selector' 來控制這個 selectbox 的狀態**
+        type_select = st.selectbox(
+            "類型", 
+            list(CATEGORIES.keys()),
+            key='type_selector' 
+        )
+
+    # 根據 type_select 取得正確的類別選項
+    category_options = CATEGORIES.get(type_select, []) # 確保即使 type_select 為空也不會報錯
+    
+    # 建立表單 (只包含不需要即時更新的欄位)
     with st.form(key='transaction_form'):
         
-        # 輸入區：日期、類型、金額
-        col1, col2, col3 = st.columns([1, 1, 1])
+        # 擺放 type_select 旁邊的金額欄位
+        with amount_col:
+            # **注意: 金額欄位必須在 form 內才能在 submitted 時被正確捕獲**
+            amount = st.number_input("金額 (NT$)", min_value=0, step=100, format="%d", key='amount_input')
+        
+        # 輸入區：日期、類別、備註
+        col1, col2 = st.columns([1, 2])
         
         with col1:
-            date = st.date_input("日期", datetime.date.today(), max_value=datetime.date.today())
-        
+            date = st.date_input("日期", datetime.date.today(), max_value=datetime.date.today(), key='date_input')
+            
+        # **修正點 2: 類別 selectbox 使用外部已經根據 type_select 篩選好的 category_options**
         with col2:
-            type_select = st.selectbox("類型", list(CATEGORIES.keys()))
+            # 類別 selectbox 必須在 form 內，但使用外部計算好的選項
+            category = st.selectbox("類別", category_options, key='category_input')
             
-        with col3:
-            amount = st.number_input("金額 (NT$)", min_value=0, step=100, format="%d")
-
-        # 輸入區：類別、備註
-        category_options = CATEGORIES[type_select]
-        col4, col5 = st.columns([1, 2])
-        
-        with col4:
-            category = st.selectbox("類別", category_options)
-            
-        with col5:
-            note = st.text_input("備註 (可選)", max_chars=100)
+        note = st.text_input("備註 (可選)", max_chars=100, key='note_input')
 
         # 提交按鈕
         st.markdown("<br>", unsafe_allow_html=True)
@@ -413,7 +424,7 @@ def main():
             # 使用 container 和 columns 創建行布局
             with st.container():
                 # 調整 st.columns 比例，使備註欄位有足夠的空間
-                # 比例: [日期 1.2, 類別 1, 金額 1, 類型 0.7, 備註 6, 操作 1] (總和 10.9)
+                # 比例: [日期 1.2, 類別 1, 金額 1, 類型 0.7, 6, 操作 1] 
                 col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([1.2, 1, 1, 0.7, 6, 1])
                 
                 # 使用 st.write 顯示交易細節
