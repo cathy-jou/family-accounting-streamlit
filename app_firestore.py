@@ -31,20 +31,20 @@ def set_ui_styles():
         
         /* 設定區塊標題 H2 (st.header) 字體大小並增加間距 */
         h2 {{
-            font-size: 1.4rem; /* H2 字體縮小 */
+            font-size: 1.3rem;
             font-weight: 600;
             color: #495057;
-            margin-top: 2rem; /* 拉大頂部間距 */
-            margin-bottom: 1.5rem; /* 拉大底部間距 */
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 5px;
+            margin-top: 2rem;
+            margin-bottom: 1.5rem;
         }}
 
-        /* 設置簡約背景顏色 */
-        /* 覆寫 Streamlit 的主要內容區域背景 */
+        /* Streamlit 基本樣式覆寫 */
         .main {{
             background-color: {DEFAULT_BG_COLOR};
-            padding-top: 2rem; 
+            padding-top: 1rem; 
         }}
-        /* 針對 Streamlit 頁面最外層的背景 */
         [data-testid="stAppViewContainer"] {{
             background-color: {DEFAULT_BG_COLOR};
         }}
@@ -53,42 +53,29 @@ def set_ui_styles():
             background-color: #ffffff; 
         }}
         
-        /* 讓輸入框和按鈕等元件看起來更現代 */
+        /* 按鈕優化 */
         div.stButton > button:first-child {{
             border-radius: 8px;
-            border: 1px solid #ddd;
-            transition: all 0.2s;
+            border: 1px solid #007bff;
+            background-color: #007bff;
+            color: white;
+            padding: 8px 16px;
+            font-weight: 600;
         }}
-        
-        /* 側邊欄輸入框背景色 (讓邊界清晰可見) */
-        /* 針對側邊欄內的主要輸入元件容器設定淺灰色背景 */
-        section[data-testid="stSidebar"] div.stTextInput > div:first-child,
-        section[data-testid="stSidebar"] div.stNumberInput > div:first-child,
-        section[data-testid="stSidebar"] div.stDateInput > div:first-child,
-        section[data-testid="stSidebar"] div.stSelectbox > div:first-child
-        {{
-            background-color: #f5f5f5; /* 柔和的淺灰色背景 */
-            padding: 10px;
-            border-radius: 6px;
-            border: 1px solid #e9ecef; /* 加上極淺的邊界 */
+        /* 上傳按鈕優化 */
+        div.stDownloadButton > button:first-child, 
+        div.stFileUploadDropzone > button:first-child {{
+            border-radius: 8px;
+            border: 1px solid #28a745;
+            background-color: #28a745;
+            color: white;
+            padding: 8px 16px;
+            font-weight: 600;
         }}
-        
-        /* --- 新增：Placeholder 樣式，設定為柔和的淺灰色 --- */
-        /* 針對數字輸入框 */
-        section[data-testid="stSidebar"] input[type="number"]::placeholder {{
-            color: #adb5bd !important; /* 柔和的淺灰色，接近文字提示效果 */
-            opacity: 1; /* 確保在所有瀏覽器中都可見 */
-        }}
-
-        /* 針對文字輸入框 */
-        section[data-testid="stSidebar"] input[type="text"]::placeholder {{
-            color: #adb5bd !important;
-            opacity: 1;
-        }}
-        /* --- 結束：Placeholder 樣式 --- */
         </style>
-    """
+        """
     st.markdown(css, unsafe_allow_html=True)
+
 
 # --- 1. Firestore 連線與操作 ---
 
@@ -105,299 +92,309 @@ def get_firestore_db():
         # 使用憑證初始化 Firestore 客戶端
         db = firestore.Client.from_service_account_info(creds)
         
-        # 移除 st.success 提示，讓介面更乾淨
-        # st.success("成功連線到 Firestore!") 
+        st.success("成功連線到 Firestore!")
         return db
     except Exception as e:
         st.error(f"連線 Firestore 失敗，請檢查 .streamlit/secrets.toml 檔案: {e}")
-        st.stop() # 停止應用程式運行，直到連線成功
+        st.stop() # 連線失敗則停止應用程式運行
 
-def add_transaction_to_db(db, date, category, amount, type, note):
-    """將一筆交易新增到 Firestore 的 'family_ledger' 集合中"""
-    
-    # 集合路徑：協作應用程式通常使用單一集合來儲存所有紀錄
-    collection_name = 'family_ledger'
-    
-    # 建立數據字典
-    transaction_data = {
-        'date': date.strftime('%Y-%m-%d'),
-        'category': category,
-        # 將金額儲存為浮點數 (Firestore 建議儲存為數字類型，即使是整數)
-        'amount': float(amount), 
-        'type': type,  # 'Income' or 'Expense'
-        'note': note,
-        'timestamp': firestore.SERVER_TIMESTAMP # 加入伺服器時間戳，方便排序
-    }
-    
-    # 新增文件到集合
-    db.collection(collection_name).add(transaction_data)
-
-def get_all_transactions_from_db(db):
-    """從 Firestore 獲取所有交易紀錄，並返回 Pandas DataFrame"""
-    collection_name = 'family_ledger'
-    
-    # 使用快照監聽，獲取最新的數據，並按日期倒序
-    # 注意：Firestore 的 get() 是單次讀取，如果需要即時更新，需要使用 on_snapshot
-    docs = db.collection(collection_name).order_by('date', direction=firestore.Query.DESCENDING).get()
-    
-    data = []
-    for doc in docs:
-        record = doc.to_dict()
-        record['id'] = doc.id # 儲存文件 ID，方便未來刪除或修改
-        data.append(record)
-    
-    df = pd.DataFrame(data)
-    
-    if not df.empty:
-        # 進行基本的資料處理
-        df['amount_adj'] = df.apply(
-            lambda row: row['amount'] if row['type'] == 'Income' else -row['amount'],
-            axis=1
-        )
-        df['date'] = pd.to_datetime(df['date']) # 確保日期為日期格式
-        df['month_year'] = df['date'].dt.to_period('M') # 計算月份，用於篩選
-
-    return df
-
-# --- 新增的刪除函數 ---
-def delete_transaction_from_db(db, doc_id):
-    """根據文件 ID 刪除 Firestore 中的一筆交易紀錄"""
-    collection_name = 'family_ledger'
-    
+def add_record(db, date, category, amount, type_of_record, note=""):
+    """新增一筆記帳紀錄到 Firestore。"""
     try:
-        # 建立文件引用並刪除
-        doc_ref = db.collection(collection_name).document(doc_id)
-        doc_ref.delete()
-        st.success(f"紀錄 (ID: {doc_id}) 已成功刪除。")
+        # 建立一個新的文件參考
+        doc_ref = db.collection("transactions").document()
+        
+        # 準備數據
+        data = {
+            "date": date,
+            "category": category,
+            "amount": float(amount),
+            "type": type_of_record, # '支出' 或 '收入'
+            "note": note,
+            "created_at": datetime.datetime.now()
+        }
+        
+        # 寫入 Firestore
+        doc_ref.set(data)
+        return True
+    except Exception as e:
+        st.error(f"新增紀錄失敗: {e}")
+        return False
+
+def get_all_records(db):
+    """從 Firestore 獲取所有記帳紀錄並轉換為 DataFrame。"""
+    try:
+        docs = db.collection("transactions").stream()
+        
+        records = []
+        for doc in docs:
+            record = doc.to_dict()
+            record['id'] = doc.id # 保留文件 ID
+            # 確保 'date' 是 datetime.date 物件
+            if isinstance(record['date'], datetime.date):
+                 # Firestore 存儲的 date 欄位如果是 datetime.date 類型，則直接使用
+                 record['date'] = record['date']
+            elif isinstance(record['date'], datetime.datetime):
+                # 如果是 datetime.datetime，則只取日期部分
+                record['date'] = record['date'].date()
+            # 否則假設它是字串，嘗試解析 (例如來自 CSV 匯入)
+            elif isinstance(record['date'], str):
+                try:
+                    record['date'] = datetime.datetime.strptime(record['date'], '%Y-%m-%d').date()
+                except ValueError:
+                     # 處理其他可能的日期格式，這裡簡化為直接使用 today 作為備案
+                    record['date'] = datetime.date.today()
+            else:
+                 record['date'] = datetime.date.today() # 確保所有記錄都有日期
+            
+            records.append(record)
+        
+        # 如果沒有紀錄，返回空的 DataFrame
+        if not records:
+            return pd.DataFrame(columns=['date', 'category', 'amount', 'type', 'note', 'id'])
+            
+        df = pd.DataFrame(records)
+        
+        # 確保 amount 是數字，date 是日期類型
+        df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+        # date 已經在上面轉換為 datetime.date，這裡只需要排序
+        df = df.sort_values(by='date', ascending=False)
+        return df.dropna(subset=['amount']) # 移除 amount 無效的行
+        
+    except Exception as e:
+        st.error(f"讀取紀錄失敗: {e}")
+        return pd.DataFrame(columns=['date', 'category', 'amount', 'type', 'note', 'id'])
+
+def delete_record(db, doc_id):
+    """從 Firestore 刪除一筆紀錄。"""
+    try:
+        db.collection("transactions").document(doc_id).delete()
+        st.toast(f"成功刪除文件 ID: {doc_id}", icon="🗑️")
+        # 設置一個狀態來觸發應用程式重新運行
+        st.session_state['refresh_data'] = True
+        return True
     except Exception as e:
         st.error(f"刪除紀錄失敗: {e}")
+        return False
 
-# --- 2. Streamlit 介面與應用邏輯 ---
+# --- 2. 應用程式介面功能 (單筆輸入) ---
 
-# 定義基礎類別和常數
-BASE_EXPENSE_CATEGORIES = ['飲食', '交通', '家庭', '娛樂', '教育', '其他']
-INCOME_CATEGORY = '收入'
-TRANSACTION_TYPES = ['支出', '收入']
-CUSTOM_OPTION = "新增自訂類別..." # 用於觸發自訂輸入框的選項
-
-def main():
+def input_form_page(db):
+    """記帳輸入頁面 (包含手動輸入和 CSV 導入)"""
+    st.header("手動記帳 / 批量導入")
     
-    # 初始化並連線到 Firestore
-    db = get_firestore_db() 
+    # 建立兩個頁籤
+    tab1, tab2 = st.tabs(["📝 手動輸入", "📂 批量導入 (CSV/Excel)"])
 
-    # 設置頁面配置
-    st.set_page_config(layout="wide", page_title="宅宅家族記帳本")
-    
-    # 注入 CSS 樣式
-    set_ui_styles() 
-    
-    st.title("宅宅家族記帳本")
-
-    # 獲取所有交易數據 (每次 App 刷新時執行)
-    df = get_all_transactions_from_db(db)
-    
-    # --- 側邊欄：輸入區 ---
-    with st.sidebar:
-        # 移除介面設定區
-        st.header("新增交易紀錄")
+    with tab1:
+        st.subheader("新增單筆交易")
         
-        # 準備動態類別列表
-        all_expense_categories = []
-        if not df.empty:
-            # 找出所有已儲存的支出類別
-            all_expense_categories = df[df['type'] == 'Expense']['category'].unique().tolist()
+        # 類別選項
+        expense_categories = ["餐飲", "交通", "購物", "娛樂", "住房", "醫療", "教育", "投資", "其他支出"]
+        income_categories = ["薪資", "獎金", "投資收益", "其他收入"]
         
-        # 合併基礎類別和已儲存類別，確保不重複並排序
-        combined_expense_categories = sorted(list(set(BASE_EXPENSE_CATEGORIES + all_expense_categories)))
+        # 交易類型選擇
+        type_of_record = st.radio("類型", ['支出', '收入'], index=0, horizontal=True)
         
-        # 加入「新增自訂類別」的選項
-        expense_category_options = combined_expense_categories + [CUSTOM_OPTION]
+        # 根據類型顯示不同類別
+        if type_of_record == '支出':
+            categories = expense_categories
+        else:
+            categories = income_categories
 
-        # 設定預設選項為「飲食」，若「飲食」不在列表中則預設選第一個
-        default_index = expense_category_options.index('飲食') if '飲食' in expense_category_options else 0
-
-
-        with st.form("transaction_form"):
-            # 1. 交易類型
-            trans_type = st.radio("交易類型", TRANSACTION_TYPES, index=0)
-            
-            # 2. 金額
-            # 新增 placeholder 參數
-            amount = st.number_input("金額 (新台幣)", min_value=1, format="%d", step=1, 
-                                     placeholder="例如: 350")
-            
-            # 3. 類別 - 動態處理區
-            category = "" # 初始化 category
-            
-            if trans_type == '收入':
-                # 收入類別固定，不提供自訂
-                category = INCOME_CATEGORY
-                st.markdown(f"**類別**: **{category}** (固定)")
-            else:
-                # 支出類別：允許選擇或自訂
-                selected_category = st.selectbox("類別", expense_category_options, index=default_index)
-                
-                if selected_category == CUSTOM_OPTION:
-                    # 顯示自訂輸入框，新增 placeholder 參數
-                    custom_category = st.text_input("請輸入新的支出類別名稱", 
-                                                   value="", # 清空預設值
-                                                   key="custom_cat_input",
-                                                   placeholder="例如: 醫療、寵物")
-                    if custom_category:
-                        # 使用者輸入了自訂類別
-                        category = custom_category.strip()
-                    else:
-                        # 提醒使用者輸入
-                        category = ""
-                        st.warning("請輸入自訂類別名稱。")
-                else:
-                    # 使用者選擇了現有類別
-                    category = selected_category
-            
-            # 4. 日期
-            # st.date_input 不支援 placeholder，但已是日曆選擇器，足夠清晰
+        # 欄位輸入
+        col1, col2 = st.columns(2)
+        with col1:
             date = st.date_input("日期", datetime.date.today())
+        with col2:
+            amount = st.number_input("金額", min_value=0.01, step=1.0, format="%.2f")
             
-            # 5. 備註
-            # 新增 placeholder 參數
-            note = st.text_input("備註 (例如: 晚餐-麥當勞)", placeholder="例如: 晚餐-麥當勞，或薪水入帳")
-            
-            submitted = st.form_submit_button("✅ 新增交易")
-            
-            if submitted:
-                # 檢查類別是否有效（主要針對自訂類別的情況）
-                if not category:
-                    st.error("請提供一個有效的支出類別名稱。")
-                    # 停止應用程式運行，以防止提交空類別
-                    st.stop()
-                
-                # 轉換交易類型
-                db_type = 'Income' if trans_type == '收入' else 'Expense'
-                
-                # 新增到 Firestore
-                add_transaction_to_db(db, date, category, amount, db_type, note)
-                st.success(f"已新增一筆 {trans_type} 紀錄：{category} {amount} 元！")
-                st.balloons() # 增加成功視覺效果
-                # 重新運行應用程式以刷新數據
-                st.rerun()
+        category = st.selectbox("類別", categories)
+        note = st.text_input("備註/說明", "")
+        
+        # 新增按鈕
+        if st.button("確認新增", type="primary"):
+            if amount and category:
+                if add_record(db, date, category, amount, type_of_record, note):
+                    st.success("紀錄新增成功！")
+                    # 設置狀態來觸發應用程式重新載入數據
+                    st.session_state['refresh_data'] = True
+                else:
+                    st.error("紀錄新增失敗，請重試。")
+            else:
+                st.warning("請輸入金額和類別！")
 
-    # --- 主畫面：儀表板與紀錄 ---
+    with tab2:
+        st.subheader("從銀行交易紀錄批量導入")
+        st.info("""
+        請從您的銀行或信用卡網站下載交易紀錄 CSV/Excel 檔案。
+        **數據格式要求：** 檔案中必須包含以下欄位（名稱需準確）：
+        - **日期** (例如: `2025/10/23` 或 `2025-10-23`)
+        - **金額** (必須是數字)
+        - **交易摘要** 或 **備註** (用於自動或手動分類)
+        - **類型** (可選，如果沒有類型，則預設所有正數為收入，負數為支出)
+        """)
+
+        uploaded_file = st.file_uploader("上傳 CSV 或 Excel 檔案", type=["csv", "xlsx"])
+
+        if uploaded_file is not None:
+            try:
+                # 根據副檔名讀取文件
+                if uploaded_file.name.endswith('.csv'):
+                    df_upload = pd.read_csv(uploaded_file)
+                elif uploaded_file.name.endswith('.xlsx'):
+                    df_upload = pd.read_excel(uploaded_file)
+                else:
+                    st.error("不支援的檔案格式。")
+                    return
+
+                st.markdown("##### 步驟 1: 確認檔案內容")
+                st.dataframe(df_upload.head())
+                
+                # 嘗試自動識別欄位
+                date_cols = [c for c in df_upload.columns if '日' in c and '期' in c]
+                amount_cols = [c for c in df_upload.columns if '金額' in c or '數' in c]
+                note_cols = [c for c in df_upload.columns if '摘要' in c or '說明' in c]
+
+                # 讓使用者選擇正確的欄位名稱
+                st.markdown("##### 步驟 2: 選擇對應的欄位")
+                col_date = st.selectbox("選擇【日期】欄位", df_upload.columns, index=df_upload.columns.get_loc(date_cols[0]) if date_cols else 0)
+                col_amount = st.selectbox("選擇【金額】欄位", df_upload.columns, index=df_upload.columns.get_loc(amount_cols[0]) if amount_cols else 0)
+                col_note = st.selectbox("選擇【備註/摘要】欄位", df_upload.columns, index=df_upload.columns.get_loc(note_cols[0]) if note_cols else 0)
+                
+                # 金額處理方式（銀行導出的金額可能都是正數，需要判斷）
+                amount_sign_option = st.radio(
+                    "如何判斷交易類型 (收入/支出)?",
+                    ["金額正負 (推薦)", "單獨欄位 (如果檔案有)"],
+                    index=0,
+                    horizontal=True
+                )
+                
+                if st.button("確認導入並存儲到 Firestore", key="upload_button", type="primary"):
+                    
+                    df_processed = df_upload.copy()
+                    
+                    # 1. 數據清洗與轉換
+                    df_processed[col_amount] = pd.to_numeric(df_processed[col_amount], errors='coerce').fillna(0)
+                    
+                    # 2. 定義類型 (type) 和類別 (category)
+                    if amount_sign_option == "金額正負 (推薦)":
+                        # 正數為收入，負數為支出
+                        df_processed['type'] = df_processed[col_amount].apply(lambda x: '收入' if x > 0 else '支出')
+                        df_processed['amount'] = df_processed[col_amount].abs()
+                    # 這裡可以加入更複雜的自動分類邏輯 (例如，根據備註關鍵字自動分類)
+                    df_processed['category'] = '待分類' # 預設為待分類
+                    
+                    # 3. 統一日期格式
+                    df_processed['date'] = pd.to_datetime(df_processed[col_date], errors='coerce').dt.date
+                    
+                    # 過濾掉日期和金額無效的行
+                    df_final = df_processed.dropna(subset=['date', 'amount']).copy()
+                    
+                    # 4. 批量寫入 Firestore
+                    count = 0
+                    with st.spinner("正在批量導入資料..."):
+                        for index, row in df_final.iterrows():
+                            # 使用摘要作為備註
+                            note_content = str(row[col_note]) if col_note in row else ""
+                            
+                            add_record(
+                                db=db, 
+                                date=row['date'], 
+                                category=row['category'], 
+                                amount=row['amount'], 
+                                type_of_record=row['type'], 
+                                note=note_content
+                            )
+                            count += 1
+                            
+                    st.success(f"✅ 成功導入 {count} 筆交易紀錄！請至財務總覽頁面查看。")
+                    st.session_state['refresh_data'] = True
+                    
+            except Exception as e:
+                st.error(f"檔案處理發生錯誤，請檢查檔案格式與欄位選擇: {e}")
+
+# --- 3. 應用程式介面功能 (總覽與分析) ---
+
+def overview_page(db):
+    """財務總覽與分析頁面"""
+    st.header("財務總覽與分析")
+    
+    # 獲取所有數據
+    df = get_all_records(db)
     
     if df.empty:
-        st.warning("目前雲端資料庫中還沒有交易紀錄，請從左側新增第一筆紀錄！")
+        st.info("目前無交易紀錄，請在記帳頁面新增或導入數據。")
         return
 
-    # 1. 準備日期範圍篩選
-    min_date_in_data = df['date'].min().date()
-    today = datetime.date.today()
+    # --- 篩選器 ---
+    st.subheader("篩選條件")
     
-    # 計算當月的第一天作為新的預設起始日期
-    first_day_of_current_month = today.replace(day=1)
+    col_start, col_end = st.columns(2)
     
-    # 修正點：確保預設的起始日期不會早於資料中最早的日期 (min_date_in_data)
-    default_start_date = max(first_day_of_current_month, min_date_in_data)
+    min_date = df['date'].min()
+    max_date = df['date'].max()
 
-
-    # st.header("🔍 選擇查看日期範圍")
-
-    # 使用 st.date_input 選擇日期範圍，支援日曆點選
-    date_range = st.date_input(
-        "選擇起始與結束日期",
-        # 預設值變更為：當月的第一天到今天 (但受限於最早的資料日期)
-        value=(default_start_date, today),
-        min_value=min_date_in_data,
-        max_value=today,
-        key="date_range_picker"
-    )
-    
-    # 2. 處理選擇的日期範圍
-    # st.date_input 在選擇一個或兩個日期時返回一個 tuple
-    start_date = min_date_in_data
-    end_date = today
-    
-    if len(date_range) == 2:
-        start_date = date_range[0]
-        end_date = date_range[1]
+    with col_start:
+        start_date = st.date_input("起始日期", min_date)
+    with col_end:
+        end_date = st.date_input("結束日期", max_date)
         
-    elif len(date_range) == 1:
-        # 僅選擇了一個日期，視為起始日期，結束日期為今天
-        start_date = date_range[0]
-        end_date = today
-
-    # 確保 start_date 在 end_date 之前
-    if start_date > end_date:
-        start_date, end_date = end_date, start_date
-    
-    # 3. 執行篩選
-    # df['date'] 是 datetime 類型，df['date'].dt.date 是 date 類型
-    df_filtered = df[
-        (df['date'].dt.date >= start_date) & 
-        (df['date'].dt.date <= end_date)
-    ]
-    
-    # 確保篩選後的資料是以日期(最新到最舊)排序，保障顯示順序
-    df_filtered = df_filtered.sort_values(by='date', ascending=False)
-    
-    # # 更新標題顯示選擇的日期範圍
-    # st.header(f" {start_date} 至 {end_date} 總結")
+    # 過濾數據
+    df_filtered = df[(df['date'] >= start_date) & (df['date'] <= end_date)].copy()
     
     if df_filtered.empty:
-        st.warning(f"在 {start_date} 至 {end_date} 範圍內沒有找到交易紀錄。請調整日期篩選條件。")
+        st.warning(f"在 {start_date} 到 {end_date} 範圍內無紀錄。")
         return
-
-    # 3.1. 總覽儀表板
-    col1, col2, col3 = st.columns(3)
+        
+    # --- 3.1. 核心指標 ---
+    st.subheader("核心財務指標")
     
-    total_income = df_filtered[df_filtered['type'] == 'Income']['amount'].sum()
-    col1.metric("總收入 (綠色)", f"NT$ {total_income:,.0f}")
-    
-    total_expense = df_filtered[df_filtered['type'] == 'Expense']['amount'].sum()
-    col2.metric("總支出 (紅色)", f"NT$ {total_expense:,.0f}")
-    
+    # 計算收入和支出
+    total_income = df_filtered[df_filtered['type'] == '收入']['amount'].sum()
+    total_expense = df_filtered[df_filtered['type'] == '支出']['amount'].sum()
     net_flow = total_income - total_expense
-    flow_delta = f"{net_flow:,.0f}" # 顯示與零的差異
-    col3.metric("淨現金流 (藍色)", f"NT$ {net_flow:,.0f}", delta=flow_delta)
 
+    col_income, col_expense, col_net = st.columns(3)
+
+    col_income.metric("總收入", f"NT$ {total_income:,.0f}", delta_color="normal")
+    col_expense.metric("總支出", f"NT$ {total_expense:,.0f}", delta_color="inverse")
+    
+    # 淨流量計算與顯示
+    net_delta = f"本期淨流量"
+    if net_flow > 0:
+        col_net.metric(net_delta, f"NT$ {net_flow:,.0f}", "盈餘", delta_color="normal")
+    elif net_flow < 0:
+        col_net.metric(net_delta, f"NT$ {net_flow:,.0f}", "赤字", delta_color="inverse")
+    else:
+        col_net.metric(net_delta, f"NT$ {net_flow:,.0f}", "持平")
+        
     st.markdown("---")
+
+    # --- 3.2. 支出分佈圖 (圓餅圖) ---
+    st.subheader("支出類別分佈")
     
-    # 3.2. 支出類別圖表
-    # 標題維持不變
-    st.header("支出類別分佈")
+    expense_data = df_filtered[df_filtered['type'] == '支出'].groupby('category').agg(
+        amount=('amount', 'sum')
+    ).reset_index()
     
-    expense_data = df_filtered[df_filtered['type'] == 'Expense'].groupby('category')['amount'].sum().reset_index()
-    
-    if not expense_data.empty and total_expense > 0:
+    if total_expense > 0:
         
-        # 計算百分比欄位，用於圓餅圖的 Tooltip
-        expense_data['percentage'] = expense_data['amount'] / total_expense
-        
-        # --------------------------------------
-        # --- 使用 Altair 創建圓餅圖 (甜甜圈圖) ---
-        # --------------------------------------
-        
-        # 1. 建立基礎圖表 (Pie Chart / Arc Mark)
-        base = alt.Chart(expense_data).encode(
-            # 角度/大小：依據金額
-            theta=alt.Theta("amount", stack=True)
-        ).properties(
-            title="支出類別金額佔比圓餅圖"
-        )
-        
-        # 2. 建立圓弧圖層
-        # 顏色：依據類別
-        # order：確保最大的扇形在起始位置
-        pie = base.mark_arc(outerRadius=120, innerRadius=60).encode( # 內半徑 60 形成甜甜圈效果
+        # 為了圓餅圖視覺效果更好，使用 Altair 
+        pie = alt.Chart(expense_data).mark_arc(outerRadius=120, innerRadius=50).encode(
+            theta=alt.Theta("amount", stack=True),
             color=alt.Color("category", title="類別"),
             order=alt.Order("amount", sort="descending"),
-            tooltip=[
-                "category", 
-                alt.Tooltip("amount", format=',.0f', title="總支出 (NT$)"),
-                # 顯示百分比
-                alt.Tooltip("percentage", format='.1%', title="佔比")
-            ]
+            tooltip=["category", alt.Tooltip('amount', format=',.0f', title='總支出')]
+        ).properties(
+            title="選定範圍內各類別支出金額分佈"
         )
         
-        # 3. 建立文字標籤圖層 (顯示類別) - 可選，Altair 在圓餅圖上顯示標籤較為複雜，這裡先省略以保持簡潔
+        text = pie.mark_text(radius=140).encode(
+            text=alt.Text("amount", format=","),
+            order=alt.Order("amount", sort="descending"),
+            color=alt.value("black")
+        )
         
         # 4. 組合圖表並居中顯示
         chart = pie.interactive()
@@ -413,8 +410,8 @@ def main():
 
     st.markdown("---")
 
-    # 3.3. 交易紀錄區 (新增刪除按鈕)
-    st.header("完整交易紀錄")
+    # --- 3.3. 交易紀錄區 (新增刪除按鈕) ---
+    st.subheader("完整交易紀錄")
     
     # 準備用於顯示和刪除的 DataFrame
     display_df = df_filtered[['date', 'category', 'amount', 'type', 'note', 'id']].copy()
@@ -428,31 +425,79 @@ def main():
     }, inplace=True)
     
     # 遍歷每一筆紀錄，並為其添加一個刪除按鈕
-    st.markdown("---")
+    st.markdown("""
+        <div style='font-weight: bold; display: flex; border-bottom: 2px solid #ccc; padding: 5px 0;'>
+            <div style='width: 15%;'>日期</div>
+            <div style='width: 15%;'>類別</div>
+            <div style='width: 15%;'>金額</div>
+            <div style='width: 35%;'>備註</div>
+            <div style='width: 20%;'>操作</div>
+        </div>
+        """, unsafe_allow_html=True)
+
     for index, row in display_df.iterrows():
+        # 根據類型設置顏色
+        color = "#dc3545" if row['類型'] == '支出' else "#28a745"
+        sign = "-" if row['類型'] == '支出' else "+"
+        
         col_date, col_cat, col_amount, col_note, col_btn = st.columns([1, 1, 1, 3, 1])
         
         # 顯示交易細節
-        col_date.write(row['日期'].strftime('%Y-%m-%d'))
-        col_cat.write(f"**{row['類型']}**")
-        col_amount.write(f"NT$ {row['金額']:,.0f}") # 這裡也改為不顯示小數點
+        col_date.write(row['日期'].strftime('%Y/%m/%d'))
+        col_cat.write(row['類別'])
+        col_amount.markdown(f"<span style='color: {color}; font-weight: bold;'>{sign} {row['金額']:,.0f}</span>", unsafe_allow_html=True)
         col_note.write(row['備註'])
         
         # 刪除按鈕
-        # 使用唯一 key 確保 Streamlit 能夠識別每個按鈕
-        btn_key = f"delete_btn_{row['文件ID']}"
-        
-        if col_btn.button("🗑️ 刪除", key=btn_key):
-            # 執行刪除操作
-            delete_transaction_from_db(db, row['文件ID'])
-            # 刪除成功後重新運行應用程式以刷新數據
+        if col_btn.button("🗑️ 刪除", key=f"delete_{row['文件ID']}", help="永久刪除此筆紀錄"):
+            delete_record(db, row['文件ID'])
+            # 刷新頁面以更新列表 (通過 session_state 觸發重新執行)
             st.rerun()
 
-    st.markdown("---")
+# --- 主程式 ---
+
+def main():
+    """應用程式主入口"""
+    # 設置頁面配置
+    st.set_page_config(
+        page_title="個人財務儀表板 (記帳本)",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # 注入樣式
+    set_ui_styles()
+    
+    st.title("💸 個人財務儀表板")
+    
+    # 初始化 Firestore 連線 (只會執行一次)
+    db = get_firestore_db()
+    
+    # 處理數據刷新狀態
+    if 'refresh_data' not in st.session_state:
+        st.session_state['refresh_data'] = False
+        
+    if st.session_state['refresh_data']:
+        # 重設狀態並觸發重新運行
+        st.session_state['refresh_data'] = False
+        st.rerun()
+        return
+
+
+    # 使用 Streamlit 側邊欄作為導航
+    with st.sidebar:
+        st.header("導航")
+        page = st.radio("選擇功能頁面", ["記帳頁面", "財務總覽"])
+        st.markdown("---")
+        st.caption("數據儲存於 Google Firestore，由 Streamlit 應用程式運行。")
+
+    
+    # 頁面分流
+    if page == "記帳頁面":
+        input_form_page(db)
+    elif page == "財務總覽":
+        overview_page(db)
 
 
 if __name__ == "__main__":
     main()
-
-
-
