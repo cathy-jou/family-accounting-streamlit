@@ -106,7 +106,8 @@ def add_record(db, date, category, amount, type_of_record, note=""):
         
         # 準備數據
         data = {
-            "date": date,
+            # 確保儲存的是 datetime.date 或 datetime.datetime 物件
+            "date": datetime.datetime.combine(date, datetime.time.min) if isinstance(date, datetime.date) else date,
             "category": category,
             "amount": float(amount),
             "type": type_of_record, # '支出' 或 '收入'
@@ -130,22 +131,33 @@ def get_all_records(db):
         for doc in docs:
             record = doc.to_dict()
             record['id'] = doc.id # 保留文件 ID
-            # 確保 'date' 是 datetime.date 物件
-            if isinstance(record['date'], datetime.date):
-                 # Firestore 存儲的 date 欄位如果是 datetime.date 類型，則直接使用
-                 record['date'] = record['date']
-            elif isinstance(record['date'], datetime.datetime):
-                # 如果是 datetime.datetime，則只取日期部分
-                record['date'] = record['date'].date()
-            # 否則假設它是字串，嘗試解析 (例如來自 CSV 匯入)
-            elif isinstance(record['date'], str):
+            
+            # --- 核心錯誤修正：穩健處理日期類型 ---
+            date_field = record.get('date')
+            
+            if isinstance(date_field, datetime.datetime):
+                # 如果是 datetime.datetime (來自 Firestore 的儲存)，則取日期部分
+                # 必須移除時區資訊 (tzinfo) 才能與 Pandas 和 Streamlit 良好互動
+                if date_field.tzinfo is not None:
+                    record['date'] = date_field.replace(tzinfo=None).date()
+                else:
+                    record['date'] = date_field.date()
+                    
+            elif isinstance(date_field, datetime.date):
+                # 如果是 datetime.date (來自某些特定的寫入或 CSV 導入)
+                record['date'] = date_field
+                
+            elif isinstance(date_field, str):
+                # 處理字串格式的日期 (例如來自 CSV 匯入)
                 try:
-                    record['date'] = datetime.datetime.strptime(record['date'], '%Y-%m-%d').date()
+                    record['date'] = datetime.datetime.strptime(date_field, '%Y-%m-%d').date()
                 except ValueError:
-                     # 處理其他可能的日期格式，這裡簡化為直接使用 today 作為備案
+                    # 嘗試其他格式或設為今日 (作為備案)
                     record['date'] = datetime.date.today()
             else:
-                 record['date'] = datetime.date.today() # 確保所有記錄都有日期
+                 # 日期無效，設為今日
+                 record['date'] = datetime.date.today() 
+            # --- 結束日期處理 ---
             
             records.append(record)
         
@@ -159,10 +171,11 @@ def get_all_records(db):
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
         # date 已經在上面轉換為 datetime.date，這裡只需要排序
         df = df.sort_values(by='date', ascending=False)
-        return df.dropna(subset=['amount']) # 移除 amount 無效的行
+        return df.dropna(subset=['amount', 'date']) # 移除 amount 或 date 無效的行
         
     except Exception as e:
-        st.error(f"讀取紀錄失敗: {e}")
+        # st.error(f"讀取紀錄失敗: {e}") # 為了不中斷應用程式，只在控制台輸出錯誤
+        print(f"Error reading records: {e}")
         return pd.DataFrame(columns=['date', 'category', 'amount', 'type', 'note', 'id'])
 
 def delete_record(db, doc_id):
@@ -258,9 +271,15 @@ def input_form_page(db):
 
                 # 讓使用者選擇正確的欄位名稱
                 st.markdown("##### 步驟 2: 選擇對應的欄位")
-                col_date = st.selectbox("選擇【日期】欄位", df_upload.columns, index=df_upload.columns.get_loc(date_cols[0]) if date_cols else 0)
-                col_amount = st.selectbox("選擇【金額】欄位", df_upload.columns, index=df_upload.columns.get_loc(amount_cols[0]) if amount_cols else 0)
-                col_note = st.selectbox("選擇【備註/摘要】欄位", df_upload.columns, index=df_upload.columns.get_loc(note_cols[0]) if note_cols else 0)
+                
+                # 確保下拉選單至少有一個選項
+                default_date_index = df_upload.columns.get_loc(date_cols[0]) if date_cols else 0
+                default_amount_index = df_upload.columns.get_loc(amount_cols[0]) if amount_cols else 0
+                default_note_index = df_upload.columns.get_loc(note_cols[0]) if note_cols else 0
+                
+                col_date = st.selectbox("選擇【日期】欄位", df_upload.columns, index=default_date_index)
+                col_amount = st.selectbox("選擇【金額】欄位", df_upload.columns, index=default_amount_index)
+                col_note = st.selectbox("選擇【備註/摘要】欄位", df_upload.columns, index=default_note_index)
                 
                 # 金額處理方式（銀行導出的金額可能都是正數，需要判斷）
                 amount_sign_option = st.radio(
@@ -286,7 +305,10 @@ def input_form_page(db):
                     df_processed['category'] = '待分類' # 預設為待分類
                     
                     # 3. 統一日期格式
-                    df_processed['date'] = pd.to_datetime(df_processed[col_date], errors='coerce').dt.date
+                    # 嘗試將欄位轉換為日期時間物件
+                    df_processed['date'] = pd.to_datetime(df_processed[col_date], errors='coerce')
+                    # 取出日期部分
+                    df_processed['date'] = df_processed['date'].dt.date
                     
                     # 過濾掉日期和金額無效的行
                     df_final = df_processed.dropna(subset=['date', 'amount']).copy()
@@ -313,6 +335,8 @@ def input_form_page(db):
                     
             except Exception as e:
                 st.error(f"檔案處理發生錯誤，請檢查檔案格式與欄位選擇: {e}")
+                import traceback
+                st.code(traceback.format_exc()) # 顯示詳細的錯誤追蹤
 
 # --- 3. 應用程式介面功能 (總覽與分析) ---
 
@@ -330,14 +354,19 @@ def overview_page(db):
     # --- 篩選器 ---
     st.subheader("篩選條件")
     
-    col_start, col_end = st.columns(2)
+    # 確保日期欄位是 datetime.date 類型以便 min/max 運算
+    df['date'] = df['date'].apply(lambda x: x if isinstance(x, datetime.date) else datetime.date.today())
     
     min_date = df['date'].min()
     max_date = df['date'].max()
 
+    col_start, col_end = st.columns(2)
+    
     with col_start:
+        # 使用最舊的日期作為預設起始日期
         start_date = st.date_input("起始日期", min_date)
     with col_end:
+        # 使用最新的日期作為預設結束日期
         end_date = st.date_input("結束日期", max_date)
         
     # 過濾數據
@@ -501,3 +530,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
