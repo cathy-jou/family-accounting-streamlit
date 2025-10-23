@@ -201,15 +201,23 @@ def fetch_all_records(db):
             
         df = pd.DataFrame(data)
         
+        # *** 修正點 1：如果 DataFrame 是空的，返回一個帶有預期欄位的空 DataFrame ***
+        if df.empty:
+            # 必須包含所有預期欄位，尤其 'date'，以防止後續的日期操作報錯
+            return pd.DataFrame(
+                [], 
+                columns=['date', 'type', 'category', 'amount', 'note', 'timestamp', 'id']
+            )
+
         # 確保日期是 datetime 對象，如果沒有紀錄，返回空 DataFrame
-        if not df.empty:
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.sort_values(by='date', ascending=False).reset_index(drop=True)
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.sort_values(by='date', ascending=False).reset_index(drop=True)
             
         return df
     except Exception as e:
         st.error(f"讀取交易紀錄失敗: {e}")
-        return pd.DataFrame()
+        # 如果發生錯誤，返回一個帶有預期欄位的空 DataFrame
+        return pd.DataFrame([], columns=['date', 'type', 'category', 'amount', 'note', 'timestamp', 'id'])
 
 # -----------------------------------------------------------
 # 主應用程式邏輯
@@ -250,12 +258,10 @@ def main():
 
     st.header("新增交易紀錄")
     
-    # **修正點 1: 將 type_select 移到表單外，使其立即觸發 Streamlit 重新運行**
-    # 使用 session_state 來儲存 type_select 的值，確保它在表單內外同步
+    # 將 type_select 移到表單外，使其立即觸發 Streamlit 重新運行
     type_col, amount_col = st.columns([1, 1])
     
     with type_col:
-        # **使用 key='type_selector' 來控制這個 selectbox 的狀態**
         type_select = st.selectbox(
             "類型", 
             list(CATEGORIES.keys()),
@@ -263,14 +269,13 @@ def main():
         )
 
     # 根據 type_select 取得正確的類別選項
-    category_options = CATEGORIES.get(type_select, []) # 確保即使 type_select 為空也不會報錯
+    category_options = CATEGORIES.get(type_select, []) 
     
-    # 建立表單 (只包含不需要即時更新的欄位)
+    # 建立表單 
     with st.form(key='transaction_form'):
         
         # 擺放 type_select 旁邊的金額欄位
         with amount_col:
-            # **注意: 金額欄位必須在 form 內才能在 submitted 時被正確捕獲**
             amount = st.number_input("金額 (NT$)", min_value=0, step=100, format="%d", key='amount_input')
         
         # 輸入區：日期、類別、備註
@@ -279,7 +284,6 @@ def main():
         with col1:
             date = st.date_input("日期", datetime.date.today(), max_value=datetime.date.today(), key='date_input')
             
-        # **修正點 2: 類別 selectbox 使用外部已經根據 type_select 篩選好的 category_options**
         with col2:
             # 類別 selectbox 必須在 form 內，但使用外部計算好的選項
             category = st.selectbox("類別", category_options, key='category_input')
@@ -309,7 +313,6 @@ def main():
                         st.success(f"✅ 成功新增 {type_select} {amount:,.0f} 元！")
                         st.rerun() # 重新運行以更新畫面
                     else:
-                        # 如果紀錄新增失敗，考慮回滾餘額 (但這裡為簡潔性，暫不實作複雜回滾)
                         st.warning("⚠️ 餘額已更新，但紀錄寫入失敗。請手動檢查。")
 
             else:
@@ -319,132 +322,132 @@ def main():
     # 3. 數據分析與紀錄顯示
     # --------------------------------------
 
-    if not df_records.empty:
-        # 3.1. 篩選控制項
-        st.header("數據篩選")
-        
-        # 篩選月份的 Sidebar
-        st.sidebar.title("📅 月份篩選")
-        all_months = df_records['date'].dt.to_period('M').unique().sort_values(ascending=False)
-        month_options = [m.strftime('%Y-%m') for m in all_months]
-        month_options.insert(0, '所有月份')
-        
-        selected_month_str = st.sidebar.selectbox(
-            "選擇要查看的月份:",
-            options=month_options,
-            key='month_selector'
-        )
-        
-        # 過濾 DataFrame
-        df_filtered = df_records.copy()
-        if selected_month_str != '所有月份':
-            selected_month = pd.to_datetime(selected_month_str).to_period('M')
-            df_filtered = df_filtered[df_filtered['date'].dt.to_period('M') == selected_month]
-
-        # 3.2. 支出分佈圓餅圖 (只顯示支出)
-        df_expense = df_filtered[df_filtered['type'] == '支出']
-        
-        if not df_expense.empty and df_expense['amount'].sum() > 0:
-            st.header(f"{selected_month_str} 支出分佈圖")
-            
-            # 將相同類別的支出加總
-            df_pie = df_expense.groupby('category')['amount'].sum().reset_index()
-            df_pie.rename(columns={'amount': '總金額', 'category': '類別'}, inplace=True)
-            
-            # 使用 Altair 建立圓餅圖
-            # 1. 建立基礎圖表
-            base = alt.Chart(df_pie).encode(
-                theta=alt.Theta("總金額", stack=True)
-            ).properties(
-                title=f"{selected_month_str} 總支出: NT$ {df_expense['amount'].sum():,.0f}"
-            )
-            
-            # 2. 建立弧形 (圓餅)
-            pie = base.mark_arc(outerRadius=120, innerRadius=50).encode(
-                color=alt.Color("類別"),
-                order=alt.Order("總金額", sort="descending"),
-                tooltip=["類別", "總金額", alt.Tooltip("總金額", format=".1%")] # 加入百分比的 Tooltip
-            )
-            
-            # 3. 加入文字標籤
-            text = base.mark_text(radius=140).encode(
-                text=alt.Text("總金額", format="~s"), # 顯示金額 (簡化格式)
-                order=alt.Order("總金額", sort="descending"),
-                color=alt.value("black") 
-            )
-            
-            # 4. 組合圖表並居中顯示
-            chart = (pie + text).interactive()
-            
-            st.altair_chart(chart, use_container_width=True)
-            
-        else:
-            if selected_month_str != '所有月份':
-                 st.info(f"在 {selected_month_str} 內無支出紀錄或總支出為零，無法顯示支出分佈圖。")
-            else:
-                 st.info("目前無支出紀錄，無法顯示支出分佈圖。")
-
-        st.markdown("---")
-
-        # 3.3. 交易紀錄區 (新增刪除按鈕)
-        st.header("完整交易紀錄")
-        
-        # 準備用於顯示和刪除的 DataFrame
-        # 這裡需要從完整的 df_records 中取得交易細節用於反向計算餘額
-        display_df = df_filtered[['date', 'category', 'amount', 'type', 'note', 'id']].copy()
-        
-        # 標題列 (使用 CSS)
-        st.markdown(
-            f"""
-            <div class='header-row'>
-                <div style='width: 11%; padding-left: 1rem;'>日期</div>
-                <div style='width: 10%;'>類別</div>
-                <div style='width: 10%;'>金額</div>
-                <div style='width: 7%;'>類型</div>
-                <div style='width: 52%;'>備註</div>
-                <div style='width: 10%; text-align: center;'>操作</div>
-            </div>
-            """, unsafe_allow_html=True
-        )
-        
-        # 數據列
-        for index, row in display_df.iterrows():
-            try:
-                # 從完整的紀錄中獲取刪除所需的資訊
-                # 確保我們傳遞給 delete_record 的是原始的金額和類型
-                record_details_for_delete = df_records[df_records['id'] == row['id']].iloc[0].to_dict()
-            except IndexError:
-                # 如果找不到原始紀錄，則跳過，避免刪除時報錯
-                st.error(f"找不到文件ID為 {row['id']} 的原始紀錄，可能已被刪除。")
-                continue
-                
-            color = "#28a745" if row['type'] == '收入' else "#dc3545"
-            amount_sign = "+" if row['type'] == '收入' else "-"
-            
-            # 使用 container 和 columns 創建行布局
-            with st.container():
-                # 調整 st.columns 比例，使備註欄位有足夠的空間
-                # 比例: [日期 1.2, 類別 1, 金額 1, 類型 0.7, 6, 操作 1] 
-                col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([1.2, 1, 1, 0.7, 6, 1])
-                
-                # 使用 st.write 顯示交易細節
-                col_date.write(row['date'].strftime('%Y-%m-%d'))
-                col_cat.write(row['category'])
-                col_amount.markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {row['amount']:,.0f}</span>", unsafe_allow_html=True)
-                col_type.write(row['type'])
-                col_note.write(row['note']) # 備註內容
-                
-                # 刪除按鈕
-                if col_btn_action.button("刪除", key=f"delete_{row['id']}", type="secondary", help="刪除此筆交易紀錄並更新餘額"):
-                    delete_record(
-                        db=db,
-                        record_id=row['id'],
-                        record_type=record_details_for_delete['type'],
-                        record_amount=record_details_for_delete['amount'],
-                        current_balance=st.session_state.current_balance
-                    )
-    else:
+    # *** 修正點 2：在進行任何需要 DataFrame 欄位的操作前，先檢查 DataFrame 是否為空 ***
+    if df_records.empty or 'date' not in df_records.columns:
         st.info("當前沒有任何交易紀錄。請在上方新增一筆紀錄。")
+        # 即使沒有紀錄，也要確保下方的 UI 結構不會崩潰，所以我們在這裡跳過數據分析部分
+        return 
+
+    # 3.1. 篩選控制項
+    st.header("數據篩選")
+    
+    # 篩選月份的 Sidebar
+    st.sidebar.title("📅 月份篩選")
+    # 此處 df_records 已經被 fetch_all_records 確保有 'date' 欄位，故不會報錯
+    all_months = df_records['date'].dt.to_period('M').unique().sort_values(ascending=False)
+    month_options = [m.strftime('%Y-%m') for m in all_months]
+    month_options.insert(0, '所有月份')
+    
+    selected_month_str = st.sidebar.selectbox(
+        "選擇要查看的月份:",
+        options=month_options,
+        key='month_selector'
+    )
+    
+    # 過濾 DataFrame
+    df_filtered = df_records.copy()
+    if selected_month_str != '所有月份':
+        selected_month = pd.to_datetime(selected_month_str).to_period('M')
+        df_filtered = df_filtered[df_filtered['date'].dt.to_period('M') == selected_month]
+
+    # 3.2. 支出分佈圓餅圖 (只顯示支出)
+    df_expense = df_filtered[df_filtered['type'] == '支出']
+    
+    if not df_expense.empty and df_expense['amount'].sum() > 0:
+        st.header(f"{selected_month_str} 支出分佈圖")
+        
+        # 將相同類別的支出加總
+        df_pie = df_expense.groupby('category')['amount'].sum().reset_index()
+        df_pie.rename(columns={'amount': '總金額', 'category': '類別'}, inplace=True)
+        
+        # 使用 Altair 建立圓餅圖
+        # 1. 建立基礎圖表
+        base = alt.Chart(df_pie).encode(
+            theta=alt.Theta("總金額", stack=True)
+        ).properties(
+            title=f"{selected_month_str} 總支出: NT$ {df_expense['amount'].sum():,.0f}"
+        )
+        
+        # 2. 建立弧形 (圓餅)
+        pie = base.mark_arc(outerRadius=120, innerRadius=50).encode(
+            color=alt.Color("類別"),
+            order=alt.Order("總金額", sort="descending"),
+            tooltip=["類別", "總金額", alt.Tooltip("總金額", format=".1%")] # 加入百分比的 Tooltip
+        )
+        
+        # 3. 加入文字標籤
+        text = base.mark_text(radius=140).encode(
+            text=alt.Text("總金額", format="~s"), # 顯示金額 (簡化格式)
+            order=alt.Order("總金額", sort="descending"),
+            color=alt.value("black") 
+        )
+        
+        # 4. 組合圖表並居中顯示
+        chart = (pie + text).interactive()
+        
+        st.altair_chart(chart, use_container_width=True)
+        
+    else:
+        if selected_month_str != '所有月份':
+             st.info(f"在 {selected_month_str} 內無支出紀錄或總支出為零，無法顯示支出分佈圖。")
+        else:
+             st.info("目前無支出紀錄，無法顯示支出分佈圖。")
+
+    st.markdown("---")
+
+    # 3.3. 交易紀錄區 (新增刪除按鈕)
+    st.header("完整交易紀錄")
+    
+    # 準備用於顯示和刪除的 DataFrame
+    display_df = df_filtered[['date', 'category', 'amount', 'type', 'note', 'id']].copy()
+    
+    # 標題列 (使用 CSS)
+    st.markdown(
+        f"""
+        <div class='header-row'>
+            <div style='width: 11%; padding-left: 1rem;'>日期</div>
+            <div style='width: 10%;'>類別</div>
+            <div style='width: 10%;'>金額</div>
+            <div style='width: 7%;'>類型</div>
+            <div style='width: 52%;'>備註</div>
+            <div style='width: 10%; text-align: center;'>操作</div>
+        </div>
+        """, unsafe_allow_html=True
+    )
+    
+    # 數據列
+    for index, row in display_df.iterrows():
+        try:
+            # 從完整的紀錄中獲取刪除所需的資訊
+            record_details_for_delete = df_records[df_records['id'] == row['id']].iloc[0].to_dict()
+        except IndexError:
+            st.error(f"找不到文件ID為 {row['id']} 的原始紀錄，可能已被刪除。")
+            continue
+            
+        color = "#28a745" if row['type'] == '收入' else "#dc3545"
+        amount_sign = "+" if row['type'] == '收入' else "-"
+        
+        # 使用 container 和 columns 創建行布局
+        with st.container():
+            # 調整 st.columns 比例
+            col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([1.2, 1, 1, 0.7, 6, 1])
+            
+            # 使用 st.write 顯示交易細節
+            col_date.write(row['date'].strftime('%Y-%m-%d'))
+            col_cat.write(row['category'])
+            col_amount.markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {row['amount']:,.0f}</span>", unsafe_allow_html=True)
+            col_type.write(row['type'])
+            col_note.write(row['note']) # 備註內容
+            
+            # 刪除按鈕
+            if col_btn_action.button("刪除", key=f"delete_{row['id']}", type="secondary", help="刪除此筆交易紀錄並更新餘額"):
+                delete_record(
+                    db=db,
+                    record_id=row['id'],
+                    record_type=record_details_for_delete['type'],
+                    record_amount=record_details_for_delete['amount'],
+                    current_balance=st.session_state.current_balance
+                )
 
 
 if __name__ == '__main__':
