@@ -105,54 +105,68 @@ def get_firestore_db():
         st.stop()
         return None
 
-# 【修正目標函數】
-# 使用 @st.cache_data 緩存資料本身，並在函數內部調用 get_firestore_db() 
-# 以避免將無法 Hash 的 'db' 物件作為參數傳入。
+
 @st.cache_data(ttl=3600) # 快取資料 1 小時 (3600 秒)
 def get_all_records():
     """
     從 Firestore 取得所有交易紀錄並轉換為 DataFrame。
     這個函數不再接受 'db' 參數。
     """
-    # 內部調用 @st.cache_resource 函數來獲取 Firestore 客戶端
-    # 這是修正 UnhashableParamError 的關鍵步驟！
     db = get_firestore_db() 
     
+    # 定義一個空的、結構正確的 DataFrame 模板
+    empty_df_template = pd.DataFrame({
+        'date': pd.Series([], dtype='datetime64[ns]'),
+        'category': pd.Series([], dtype='object'),
+        'amount': pd.Series([], dtype='float'),
+        'type': pd.Series([], dtype='object'),
+        'note': pd.Series([], dtype='object'),
+        'id': pd.Series([], dtype='object')
+    })
+    
     if db is None:
-        return pd.DataFrame()
+        return empty_df_template
 
+    records = []
     try:
         # 取得集合中的所有文件
         docs = db.collection(COLLECTION_NAME).stream()
         
-        records = []
         for doc in docs:
             # 取得文件資料並包含文件 ID
             record = doc.to_dict()
             record['id'] = doc.id
             
-            # 將 Firestore Timestamp 轉換為 Python datetime.date
+            # 轉換 Firestore Timestamp/Date 物件為標準 Python datetime
             if 'date' in record and hasattr(record['date'], 'to_datetime'):
-                # 假設我們只需要日期部分，轉換為 pandas datetime
                 record['date'] = record['date'].to_datetime()
             
             records.append(record)
             
+        
+        if not records:
+            # 如果沒有紀錄，返回結構正確的空 DataFrame
+            return empty_df_template
+        
         # 轉換為 DataFrame
         df = pd.DataFrame(records)
         
-        if not df.empty:
-            # 確保欄位類型正確
-            df['date'] = pd.to_datetime(df['date']) # 轉換為 pandas datetime
-            df['amount'] = pd.to_numeric(df['amount'])
-            df.sort_values(by='date', ascending=False, inplace=True)
-            df.reset_index(drop=True, inplace=True)
+        # 【關鍵修正 1】使用 errors='coerce' 確保轉換成功，強制設定 'date' 為 datetime 類型。
+        # 無效的日期會被轉換為 NaT (Not a Time)。
+        df['date'] = pd.to_datetime(df['date'], errors='coerce') 
+        df['amount'] = pd.to_numeric(df['amount'])
+            
+        # 移除任何因為轉換錯誤而產生的 NaT (Not a Time) 紀錄，以避免篩選錯誤
+        df.dropna(subset=['date'], inplace=True)
+            
+        df.sort_values(by='date', ascending=False, inplace=True)
+        df.reset_index(drop=True, inplace=True)
             
         return df
         
     except Exception as e:
         st.error(f"讀取交易紀錄失敗: {e}")
-        return pd.DataFrame()
+        return empty_df_template
 
 
 # --- 2. 資料新增/刪除/更新操作 ---
@@ -160,10 +174,14 @@ def get_all_records():
 def add_record(db, data):
     """將新的交易紀錄寫入 Firestore。"""
     try:
+        # 使用 firestore.client.base_client.datetime.date 確保日期格式正確
+        # 由於我們在 main 中已經轉換為 datetime.datetime，這裡確保是正確的日期類型
+        if 'date' in data:
+            data['date'] = data['date'].date() # 寫入 Firestore 時只保留日期部分 (date object)
+            
         db.collection(COLLECTION_NAME).add(data)
         st.success("成功新增交易紀錄！")
-        # 成功新增後，必須清除 get_all_records 的快取，以便重新載入最新資料
-        # 這樣下次調用 get_all_records() 時就會重新讀取
+        # 成功新增後，清除快取，以便重新載入最新資料
         st.cache_data.clear() 
     except Exception as e:
         st.error(f"新增交易紀錄失敗: {e}")
@@ -173,7 +191,7 @@ def delete_record(db, doc_id):
     try:
         db.collection(COLLECTION_NAME).document(doc_id).delete()
         st.success("成功刪除交易紀錄！")
-        # 成功刪除後，必須清除 get_all_records 的快取
+        # 成功刪除後，清除快取
         st.cache_data.clear() 
     except Exception as e:
         st.error(f"刪除交易紀錄失敗: {e}")
@@ -182,26 +200,21 @@ def delete_record(db, doc_id):
 # --- 3. Streamlit App 主函數 ---
 
 def main():
-    # 初始化 UI 樣式
+    """主應用程式邏輯。"""
     set_ui_styles()
 
     st.title("家庭記帳本 📊")
 
-    # 1. 初始化 Firestore Client (只需調用一次，用於寫入操作)
+    # 1. 初始化 Firestore Client
     db = get_firestore_db() 
     
     if db is None:
         st.stop()
 
-    # 2. 【修正後的資料讀取】 直接調用快取函數，不傳入 db 參數
-    df_records = get_all_records() # <--- 修正後的調用，解決 UnhashableParamError
+    # 2. 數據讀取 (已修正為不傳遞 db 參數)
+    df_records = get_all_records() 
     
-    # 檢查資料
-    if df_records.empty:
-        st.info("目前沒有任何交易紀錄。")
-        df_records = pd.DataFrame(columns=['date', 'category', 'amount', 'type', 'note', 'id'])
-
-
+    
     # 3. 側邊欄：新增交易
     with st.sidebar:
         st.header("新增交易")
@@ -209,20 +222,20 @@ def main():
         CATEGORIES = ['餐飲', '交通', '購物', '娛樂', '住房', '醫療', '教育', '收入', '其他']
         
         with st.form("new_record_form", clear_on_submit=True):
-            type_val = st.radio("類型", ["支出", "收入"], horizontal=True)
+            type_val = st.radio("類型", ["支出", "收入"], horizontal=True, key='new_record_type')
             
             if type_val == "支出":
                 category_options = [c for c in CATEGORIES if c != '收入']
-                default_category = category_options[0]
+                default_category = '餐飲'
             else:
                 category_options = ['收入']
                 default_category = '收入'
                 
-            category_val = st.selectbox("類別", category_options, index=category_options.index(default_category))
+            category_val = st.selectbox("類別", category_options, index=category_options.index(default_category), key='new_record_category')
             
-            amount_val = st.number_input("金額 (NT$)", min_value=1, format="%d", value=100)
-            date_val = st.date_input("日期", datetime.date.today())
-            note_val = st.text_area("備註", max_chars=100)
+            amount_val = st.number_input("金額 (NT$)", min_value=1, step=100, format="%d", value=100, key='new_record_amount')
+            date_val = st.date_input("日期", datetime.date.today(), key='new_record_date')
+            note_val = st.text_area("備註", max_chars=100, key='new_record_note')
             
             submitted = st.form_submit_button("💾 儲存紀錄")
             
@@ -231,7 +244,7 @@ def main():
                     'type': type_val,
                     'category': category_val,
                     'amount': int(amount_val),
-                    'date': datetime.datetime.combine(date_val, datetime.time.min), 
+                    'date': datetime.datetime.combine(date_val, datetime.time.min), # 暫時用 datetime 方便寫入
                     'note': note_val,
                     'created_at': firestore.SERVER_TIMESTAMP 
                 }
@@ -240,32 +253,42 @@ def main():
                 st.rerun() # 儲存後重新執行，以刷新數據
 
     # 4. 主頁面：數據分析與展示
+    
+    if df_records.empty:
+        st.info("目前沒有任何交易紀錄，請在側邊欄新增第一筆紀錄。")
+        return # 如果是空 DataFrame 則停止後續操作
+
     st.header("數據總覽")
     
     # 4.1. 篩選控制項
-    current_month = datetime.date.today().month
+    
+    # 確保只有在有數據時才計算這些值
+    min_year = df_records['date'].dt.year.min()
+    max_year = df_records['date'].dt.year.max()
     current_year = datetime.date.today().year
     
-    if 'selected_month' not in st.session_state:
-        st.session_state.selected_month = current_month
-    if 'selected_year' not in st.session_state:
-        st.session_state.selected_year = current_year
-
+    # 確保選項範圍包含當前年份，且至少從 min_year 開始
+    year_options = sorted(list(range(min(min_year, current_year), max(max_year, current_year) + 1)), reverse=True)
+    
+    # 設置預設年份為數據中最新年份
+    default_year_index = year_options.index(max_year) if max_year in year_options else 0
+    
     col_year, col_month = st.columns(2)
     
-    selected_year = col_year.selectbox("選擇年份", range(current_year - 2, current_year + 2), 
-                                       index=2, 
-                                       key="year_select",
-                                       on_change=lambda: st.session_state.__setitem__('selected_year', st.session_state.year_select))
+    selected_year = col_year.selectbox("選擇年份", year_options, 
+                                       index=default_year_index, 
+                                       key="year_select")
     
+    # 設置預設月份為當前月份 (如果當前年份有數據)
+    default_month = datetime.date.today().month
     selected_month = col_month.selectbox("選擇月份", range(1, 13), 
                                          format_func=lambda x: f"{x} 月", 
-                                         index=st.session_state.selected_month - 1,
-                                         key="month_select",
-                                         on_change=lambda: st.session_state.__setitem__('selected_month', st.session_state.month_select))
+                                         index=default_month - 1, # index 從 0 開始
+                                         key="month_select")
     
     
     # 4.2. 根據選擇進行數據篩選
+    # 這裡現在是安全的，因為 df_records['date'] 已經確定是 datetime 類型
     df_filtered = df_records[
         (df_records['date'].dt.year == selected_year) & 
         (df_records['date'].dt.month == selected_month)
@@ -276,7 +299,7 @@ def main():
     total_expense = df_filtered[df_filtered['type'] == '支出']['amount'].sum()
     net_balance = total_income - total_expense
 
-    st.markdown("### 💸 財務摘要")
+    st.markdown(f"### 💸 {selected_year} 年 {selected_month} 月 財務摘要")
     col1, col2, col3 = st.columns(3)
     
     col1.metric("總收入", f"NT$ {total_income:,.0f}", delta_color="off")
@@ -294,6 +317,7 @@ def main():
     if total_expense > 0 and not expense_data.empty:
         expense_data['percentage'] = (expense_data['amount'] / total_expense) * 100
         
+        # 使用 Altair 內建的顏色方案
         color_scale = alt.Scale(domain=expense_data['category'].tolist(), range=alt.Scheme('category10').range)
 
         pie = alt.Chart(expense_data).mark_arc(outerRadius=120).encode(
@@ -321,7 +345,7 @@ def main():
 
     st.markdown("---")
 
-    # 4.5. 交易紀錄區 (新增刪除按鈕)
+    # 4.5. 交易紀錄區
     st.header("完整交易紀錄")
     
     display_df = df_filtered[['date', 'category', 'amount', 'type', 'note', 'id']].copy()
@@ -335,6 +359,8 @@ def main():
     }, inplace=True)
     
     st.markdown(f"**共找到 {len(display_df)} 筆紀錄。**")
+    
+    # 標題列
     st.markdown(
         f"""
         <div style='display: flex; font-weight: bold; background-color: #e9ecef; padding: 10px 0; border-radius: 5px; margin-top: 10px;'>
@@ -348,6 +374,7 @@ def main():
         """, unsafe_allow_html=True
     )
     
+    # 數據列
     for index, row in display_df.iterrows():
         color = "#28a745" if row['類型'] == '收入' else "#dc3545"
         amount_sign = "+" if row['類型'] == '收入' else "-"
@@ -366,12 +393,6 @@ def main():
                 delete_record(db, row['文件ID'])
                 st.rerun() 
                 
-    if st.session_state.get('rerun_after_op', False):
-        st.session_state.rerun_after_op = False
-        st.rerun()
 
 if __name__ == "__main__":
     main()
-
-
-
