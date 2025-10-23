@@ -265,9 +265,23 @@ def main():
     # 餘額初始化檢查（如果餘額為 0 且沒有紀錄，詢問是否初始化）
     if current_balance == 0.0 and len(get_all_records()) == 0:
         st.warning("歡迎使用！您的帳戶餘額目前為零，請設定初始金額或新增第一筆紀錄。")
-        with st.expander("設定初始帳戶餘額"):
+        
+        # 解決重疊問題的修正區塊
+        with st.expander("設定初始帳戶餘額", expanded=True): # 預設展開方便設置
             with st.form("initial_balance_form"):
-                initial_amount = st.number_input("初始金額 (NT$)", min_value=0, step=1000, value=0, key='initial_amount_input')
+                
+                # 確保 number_input 獨立一行
+                initial_amount = st.number_input(
+                    "初始金額 (NT$)", 
+                    min_value=0, 
+                    step=1000, 
+                    value=0, 
+                    key='initial_amount_input_fix' 
+                )
+                
+                # 顯式分隔符號，確保按鈕在下一行，避免重疊
+                st.markdown("<br>", unsafe_allow_html=True) 
+
                 submitted_init = st.form_submit_button("設定餘額並開始記帳")
                 
                 if submitted_init:
@@ -332,7 +346,6 @@ def main():
     df_records = get_all_records()
     
     if df_records.empty:
-        # 如果經過初始化檢查後仍然沒有紀錄，則結束
         return 
 
     st.header("數據總覽")
@@ -344,7 +357,6 @@ def main():
     
     year_options = sorted(list(range(min(min_year, current_year), max(max_year, current_year) + 1)), reverse=True)
     
-    # 設置預設年份為數據中最新年份
     default_year_index = year_options.index(max_year) if max_year in year_options else 0
     default_month = datetime.date.today().month
     
@@ -467,3 +479,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
