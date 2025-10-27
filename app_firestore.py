@@ -407,7 +407,7 @@ def app():
         # 計算佔比
         category_summary['percentage'] = (category_summary['amount'] / category_summary['amount'].sum())
         
-        # 繪製圓餅圖
+        # 繪製圓餅圖 (修正點：移除有問題的 .view(...) 鏈接)
         pie_chart = alt.Chart(category_summary).mark_arc(outerRadius=120, innerRadius=50).encode(
             theta=alt.Theta("amount", stack=True),
             color=alt.Color("category", title="類別"),
@@ -415,9 +415,10 @@ def app():
             tooltip=["category", alt.Tooltip("amount", format=',.0f'), alt.Tooltip("percentage", format='.1%')]
         ).properties(
             title="支出類別佔比"
-        ).view(
-            stroke=None # 移除圖表邊框
         )
+        # .view(
+        #     stroke=None # 移除圖表邊框
+        # )
 
         st.altair_chart(pie_chart, use_container_width=True)
     else:
@@ -474,7 +475,7 @@ def app():
                     record_type=record_type,
                     record_amount=record_amount
                 )
-                # 修正點 2: 將 st.experimental_rerun() 替換為 st.rerun()
+                # 刪除後需要強制 Streamlit 重新運行以更新數據
                 st.rerun()
 
 
