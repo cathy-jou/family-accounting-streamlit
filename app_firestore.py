@@ -4,7 +4,7 @@ import datetime
 import altair as alt 
 from google.cloud import firestore
 import uuid # 導入 uuid 庫用於生成唯一 ID
-import os # 導入 os 庫用於環境變數檢查
+# 移除 os 庫，因為它不再需要
 
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa" 
@@ -89,13 +89,11 @@ def set_ui_styles():
     st.markdown(css, unsafe_allow_html=True)
 
 
-# --- 2. 修正：GCP Firestore 連線與認證 (使用 st.cache_resource) ---
+# --- 2. GCP Firestore 連線與認證 (使用 st.cache_resource) ---
 
 @st.cache_resource(ttl=600) # 緩存客戶端 10 分鐘
 def get_user_id():
     """模擬單一用戶 ID，確保數據路徑穩定"""
-    # 在 Streamlit Cloud 上，如果沒有真正的登入系統，使用一個固定的 UUID 作為用戶 ID
-    # 這樣所有操作都會集中在同一個用戶的數據下
     return str(uuid.uuid4())
 
 @st.cache_resource(ttl=3600) # 緩存客戶端，避免每次運行都重新驗證
@@ -106,15 +104,22 @@ def get_firestore_client():
     """
     # 1. 檢查 secrets 配置是否存在
     if "gcp_service_account" not in st.secrets:
-        st.error("❌ 錯誤：找不到服務帳戶配置！\n\n請確保您的 `.streamlit/secrets.toml` 檔案中包含 `[gcp_service_account]` 區段。")
+        # --- 診斷程式碼 ---
+        available_keys = list(st.secrets.keys())
+        error_msg = (
+            f"❌ 錯誤：找不到服務帳戶配置！\n\n"
+            f"請確保您的 `.streamlit/secrets.toml` 檔案中包含 `[gcp_service_account]` 區段。\n\n"
+            f"--- Streamlit 診斷訊息 ---\n"
+            f"目前 Streamlit 讀取到的密鑰鍵值為: {available_keys}\n"
+            f"--------------------------"
+        )
+        st.error(error_msg)
         st.stop() # 停止運行
         return None
-
+    
     try:
         # 2. 使用 st.secrets 字典來初始化 Firestore 客戶端
-        # 這是 Streamlit 部署時標準的認證方式，也是連線成功的關鍵
         db = firestore.Client.from_service_account_info(st.secrets["gcp_service_account"])
-        # st.success("✅ GCP Firestore 連線成功！") # 成功訊息應在外部顯示
         return db
     except Exception as e:
         # 3. 錯誤處理，提供格式提示
@@ -421,7 +426,6 @@ def app():
     })
     
     # 調整 st.columns 比例
-    # 比例: [日期 1.2, 類別 1, 金額 1, 類型 0.7, 備註 6, 操作 1] (總和 10.9)
     col_date_header, col_cat_header, col_amount_header, col_type_header, col_note_header, col_btn_header = st.columns([1.2, 1, 1, 0.7, 6, 1])
     
     col_date_header.markdown(f"<div style='font-weight: bold; background-color: {DEFAULT_BG_COLOR}; padding: 10px 0;'>日期</div>", unsafe_allow_html=True)
@@ -434,7 +438,7 @@ def app():
     # 數據列
     for _, row in df_records.iterrows():
         try:
-            # 使用原始的 row 數據來構建刪除所需的參數
+            # 這裡可以直接使用 row 的值，避免不必要的 to_dict() 調用
             record_id = row['id']
             record_type = row['type']
             record_amount = row['amount']
