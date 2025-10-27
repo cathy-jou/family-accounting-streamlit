@@ -914,12 +914,12 @@ def app():
 
     # 側邊欄導航
     with st.sidebar:
-        st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True)
+        # st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True)
         st.markdown("---")
         st.markdown("## 導航選單")
         page = st.radio(
             "選擇頁面",
-            ["📊 儀表板", "📝 新增紀錄", "📜 交易紀錄", "🏦 帳戶管理", "⚙️ 設定餘額"],
+            ["儀表板", "新增紀錄", "交易紀錄", "帳戶管理", "設定餘額"],
             key='page_selector'
         )
         st.markdown("---")
