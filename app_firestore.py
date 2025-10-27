@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 import altair as alt 
 from google.cloud import firestore
-import uuid # 導入 uuid 庫用於生成唯一 ID
+# import uuid # 導入 uuid 庫用於生成唯一 ID
 
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa" 
@@ -91,10 +91,22 @@ def set_ui_styles():
 
 # --- 2. GCP Firestore 連線與認證 (使用 st.cache_resource) ---
 
-@st.cache_resource(ttl=600) # 緩存客戶端 10 分鐘
-def get_user_id():
-    """模擬單一用戶 ID，確保數據路徑穩定"""
-    return str(uuid.uuid4())
+# @st.cache_resource(ttl=600) # 緩存客戶端 10 分鐘
+# def get_user_id():
+#     """模擬單一用戶 ID，確保數據路徑穩定"""
+#     return str(uuid.uuid4())
+
+@st.cache_resource
+def get_user_id() -> str:
+    """
+    獲取用戶 ID。
+    直接返回硬編碼的固定 ID。
+    """
+    fixed_id = "mABeWsZAaspwFcRNnODI" # <-- 直接在這裡設定您的固定 ID
+    # 將固定 ID 存入 session_state 以便後續使用 (如果需要)
+    if 'user_id' not in st.session_state or st.session_state['user_id'] != fixed_id:
+        st.session_state['user_id'] = fixed_id
+    return fixed_id
 
 @st.cache_resource(ttl=3600) # 緩存客戶端，避免每次運行都重新驗證
 def get_firestore_client():
@@ -214,7 +226,8 @@ def add_record(db, user_id, date, record_type, category, amount, note):
         date = datetime.datetime.combine(date, datetime.time(0, 0, 0)) # 轉換為當日午夜時間
 
     new_record = {
-        'id': str(uuid.uuid4()), # 在 Firestore 中，文件 ID 和 document 內容中的 ID 一致
+        # 'id': str(uuid.uuid4()), # 在 Firestore 中，文件 ID 和 document 內容中的 ID 一致
+        'id': fixed_id,
         'date': date,
         'type': record_type,
         'category': category,
@@ -512,7 +525,8 @@ def app():
                                            -1)
 
                     # 確保帳戶有一個穩定 ID
-                    account_id = accounts_list[existing_index]['id'] if existing_index != -1 else str(uuid.uuid4())
+                    # account_id = accounts_list[existing_index]['id'] if existing_index != -1 else str(uuid.uuid4())
+                    account_id = accounts_list[existing_index]['id'] if existing_index != -1 else fixed_id
 
                     new_account_data = {
                         'id': account_id,
