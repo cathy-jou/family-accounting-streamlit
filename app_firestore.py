@@ -4,7 +4,6 @@ import datetime
 import altair as alt 
 from google.cloud import firestore
 import uuid # 導入 uuid 庫用於生成唯一 ID
-# 移除 os 庫，因為它不再需要
 
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa" 
@@ -102,7 +101,6 @@ def get_firestore_client():
     初始化 Firestore 客戶端。
     它從 .streamlit/secrets.toml 中的 [firestore] 區段讀取認證資訊。
     """
-    # *** 修正點 1: 檢查密鑰名稱從 'gcp_service_account' 改為 'firestore' ***
     if "firestore" not in st.secrets:
         # --- 診斷程式碼 ---
         available_keys = list(st.secrets.keys())
@@ -118,7 +116,6 @@ def get_firestore_client():
         return None
     
     try:
-        # *** 修正點 2: 使用 st.secrets["firestore"] 初始化客戶端 ***
         db = firestore.Client.from_service_account_info(st.secrets["firestore"])
         return db
     except Exception as e:
@@ -290,19 +287,29 @@ def app():
         st.code(f"用戶 ID: {user_id}", language="text")
 
     # ---------------------------------------------
-    # 側邊欄：新增交易
+    # 側邊欄：新增交易 (已修改連動邏輯)
     # ---------------------------------------------
     with st.sidebar:
         st.header("新增交易紀錄")
         
+        # --- 修正點：將類型選擇移到 form 之外，實現即時連動 ---
+        # 1. 類型選擇 (收入/支出)
+        record_type = st.radio(
+            "類型", 
+            list(CATEGORIES.keys()), 
+            key="record_type_selector", 
+            horizontal=True
+        )
+        
         with st.form("new_record_form"):
             date = st.date_input("日期", datetime.date.today())
             
-            # 類型選擇 (收入/支出)
-            record_type = st.radio("類型", list(CATEGORIES.keys()), key="record_type", horizontal=True)
-            
-            # 類別選擇 (根據類型變動)
-            category = st.selectbox("類別", CATEGORIES[record_type], key="record_category")
+            # 2. 類別選擇 (根據 record_type 變動，因為 record_type 在 form 之外，每次改變都會觸發整個頁面重新運行，因此這裡的選項會正確更新)
+            category = st.selectbox(
+                "類別", 
+                CATEGORIES[record_type], 
+                key="record_category"
+            )
             
             amount = st.number_input("金額 (TWD)", min_value=1, step=1, key="record_amount")
             note = st.text_area("備註", max_chars=100, key="record_note")
@@ -313,7 +320,7 @@ def app():
                 if amount <= 0:
                     st.error("金額必須大於 0。")
                 else:
-                    # 提交數據
+                    # 3. 提交數據時，使用來自外部的 record_type
                     add_record(db, user_id, date, record_type, category, amount, note)
                     # 提交後需要強制 Streamlit 重新運行以更新數據
                     st.experimental_rerun()
@@ -415,16 +422,6 @@ def app():
     # 5. 交易紀錄列表
     st.header("📋 所有交易紀錄")
     
-    # 創建一個只包含必要欄位的數據框用於顯示
-    # display_df = df_records[['id', 'date', 'type', 'category', 'amount', 'note']].rename(columns={
-    #     'id': '文件ID',
-    #     'date': '日期',
-    #     'type': '類型',
-    #     'category': '類別',
-    #     'amount': '金額',
-    #     'note': '備註'
-    # })
-    
     # 調整 st.columns 比例
     col_date_header, col_cat_header, col_amount_header, col_type_header, col_note_header, col_btn_header = st.columns([1.2, 1, 1, 0.7, 6, 1])
     
@@ -438,7 +435,6 @@ def app():
     # 數據列
     for _, row in df_records.iterrows():
         try:
-            # 這裡可以直接使用 row 的值，避免不必要的 to_dict() 調用
             record_id = row['id']
             record_type = row['type']
             record_amount = row['amount']
