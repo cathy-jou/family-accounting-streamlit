@@ -99,15 +99,15 @@ def get_user_id():
 @st.cache_resource(ttl=3600) # 緩存客戶端，避免每次運行都重新驗證
 def get_firestore_client():
     """
-    初始化 Firestore 客戶端。
-    它從 .streamlit/secrets.toml 中的 [firestore] 區段讀取認證資訊。
+    初始化 Firestore 客戶端
+    它從 .streamlit/secrets.toml 中的 [firestore] 區段讀取認證資訊
     """
     if "firestore" not in st.secrets:
         # --- 診斷程式碼 ---
         available_keys = list(st.secrets.keys())
         error_msg = (
             f"❌ 錯誤：找不到服務帳戶配置！\n\n"
-            f"請確保您的 `.streamlit/secrets.toml` 檔案中包含 `[firestore]` 區段。\n\n"
+            f"請確保您的 `.streamlit/secrets.toml` 檔案中包含 `[firestore]` 區段\n\n"
             f"--- Streamlit 診斷訊息 ---\n"
             f"目前 Streamlit 讀取到的密鑰鍵值為: {available_keys}\n"
             f"--------------------------"
@@ -386,7 +386,7 @@ def app():
 
             if submitted:
                 if amount <= 0:
-                    st.error("金額必須大於 0。")
+                    st.error("金額必須大於 0")
                 else:
                     # 3. 提交數據時，使用來自外部的 record_type
                     add_record(db, user_id, date, record_type, category, amount, note)
@@ -416,7 +416,7 @@ def app():
     st.header("💸 財務概覽與分析")
     
     if df_records.empty:
-        st.info("目前沒有任何交易紀錄，請從左側欄新增第一筆紀錄。")
+        st.info("目前沒有任何交易紀錄，請從左側欄新增第一筆紀錄")
         # 即使沒有紀錄，也要顯示帳戶管理
     else:
         # 創建一個數據框用於計算月度收支，並按月份排序
@@ -481,7 +481,7 @@ def app():
             
             st.altair_chart(pie_chart, use_container_width=True)
         else:
-            st.info("目前沒有支出紀錄可供分析。")
+            st.info("目前沒有支出紀錄可供分析")
 
 
     # 5. 銀行帳戶管理 (新增功能)
@@ -504,7 +504,7 @@ def app():
 
             if submitted_account:
                 if not bank_name or not account_name:
-                    st.error("銀行名稱和帳戶名稱不能為空。")
+                    st.error("銀行名稱和帳戶名稱不能為空")
                 else:
                     # 檢查是否已存在同名的帳戶
                     existing_index = next((i for i, acc in enumerate(accounts_list) 
@@ -551,7 +551,7 @@ def app():
             total_manual_balance = df_accounts['balance'].sum()
             st.markdown(f"**所有手動帳戶總餘額：TWD {total_manual_balance:,.0f}**")
         else:
-            st.info("目前沒有銀行帳戶紀錄，請在上方新增。")
+            st.info("目前沒有銀行帳戶紀錄，請在上方新增")
 
 
     # 6. 交易紀錄列表
