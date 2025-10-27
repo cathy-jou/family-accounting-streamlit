@@ -4,6 +4,7 @@ import datetime
 import altair as alt 
 from google.cloud import firestore
 import uuid # 導入 uuid 庫用於生成唯一 ID
+import os # 導入 os 庫用於環境變數檢查
 
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa" 
@@ -104,6 +105,8 @@ def set_ui_styles():
 
 def get_current_balance(db, user_id):
     """從 Firestore 獲取當前餘額，如果不存在則初始化為 0。"""
+    # 由於我們在 Streamlit 環境，這裡移除 app_id 和 user_id 依賴，直接使用單一 Collection
+    # 如果您在 Streamlit Cloud 環境運行，請使用專案 ID
     app_id = st.session_state.app_id
     doc_path = f"artifacts/{app_id}/users/{user_id}/{BALANCE_COLLECTION_NAME}/{BALANCE_DOC_ID}"
     doc_ref = db.document(doc_path)
@@ -163,7 +166,7 @@ def add_record(db, user_id, data):
         st.error(f"新增交易紀錄時發生錯誤: {e}")
         return None
 
-def delete_record(db, user_id, record_id, record_type, record_amount, current_balance):
+def delete_record(db, user_id, record_id, record_type, record_amount):
     """刪除一筆交易紀錄並反向更新餘額。"""
     app_id = st.session_state.app_id
     doc_path = f"artifacts/{app_id}/users/{user_id}/{RECORD_COLLECTION_NAME}/{record_id}"
@@ -197,13 +200,11 @@ def get_all_records(db, user_id):
     collection_path = f"artifacts/{app_id}/users/{user_id}/{RECORD_COLLECTION_NAME}"
     
     # 查詢並排序
-    # 這裡假設 'date' 欄位存在且是 Firestore Timestamp 或 datetime 物件
     records_ref = db.collection(collection_path).order_by('date', direction=firestore.Query.DESCENDING)
 
     records = []
     try:
-        # **修正點: 將 stream() 替換為 get() 來避免潛在的 'method' object 錯誤**
-        # get() 返回一個 DocumentSnapshot 列表，通常更穩定，且不涉及複雜的 transaction 邏輯
+        # 使用 get() 獲取所有快照
         snapshots = records_ref.get() 
         for doc in snapshots:
             record = doc.to_dict()
@@ -257,17 +258,31 @@ def main():
         set_ui_styles()
         st.session_state.initialized = True
         
-    # 1.4 初始化 Firestore 客戶端
+    # 1.4 初始化 Firestore 客戶端 ** (修正連線邏輯) **
     if 'db' not in st.session_state:
         try:
-            # st.cache_resource is typically preferred for creating expensive,
-            # session-independent objects like database connections.
             @st.cache_resource
             def init_firestore_client():
-                return firestore.Client()
+                # ** 檢查 secrets.toml 是否有服務帳戶配置 **
+                if 'gcp_service_account' in st.secrets:
+                    # ** 使用 service_account_info 明確連線，解決 Project ID 缺失問題 **
+                    return firestore.Client.from_service_account_info(st.secrets["gcp_service_account"])
+                else:
+                    # 如果沒有配置 secrets，嘗試使用環境變數或預設（在本地運行會失敗，但能明確指出錯誤）
+                    # 這裡為了確保應用程式在沒有 secrets.toml 時的錯誤訊息更清晰
+                    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+                        return firestore.Client()
+                    else:
+                        st.error("錯誤：在 Streamlit secrets 中找不到 [gcp_service_account] 配置。請檢查 secrets.toml 檔案是否包含 'project_id' 等必要欄位。")
+                        raise ConnectionError("Firestore 連線配置缺失或不完整。")
             
             st.session_state.db = init_firestore_client()
+            
+        except ConnectionError as ce:
+            # 如果是 ConnectionError，已經在上面處理過錯誤訊息
+            return # 停止執行
         except Exception as e:
+            # 捕獲其他的錯誤（例如：金鑰格式錯誤）
             st.error(f"初始化 Firestore 客戶端失敗。請確保環境已正確配置。錯誤: {e}")
             return # 停止執行
     
@@ -385,8 +400,8 @@ def main():
     # 執行篩選
     df_filtered = df_records.copy()
     
-    # 確保日期是可比較的
     if not df_filtered.empty:
+        # 確保日期是可比較的
         df_filtered['date'] = pd.to_datetime(df_filtered['date']).dt.date
         df_filtered = df_filtered[
             (df_filtered['date'] >= filter_start_date) & 
@@ -478,7 +493,8 @@ def main():
     display_df = df_filtered.copy()
     
     if display_df.empty:
-        st.info("當前篩選條件下無交易紀錄。**請注意，Firestore 讀取錯誤也會導致這裡為空。**")
+        st.info("當前篩選條件下無交易紀錄。")
+        return # 如果沒有紀錄，就停止顯示列表
     
     # 標題列
     st.markdown(
@@ -495,47 +511,52 @@ def main():
     )
     
     # 數據列
-    # 遍歷篩選後的數據框，以便只顯示符合條件的紀錄
+    # 遍歷篩選後的數據框
     for index, row in display_df.iterrows():
+        
         try:
-            # 從完整的紀錄中獲取刪除所需的資訊 (確保資訊完整且來源可靠)
-            # 這裡 row 已經包含了所有的原始欄位，包括 'id', 'type', 'amount'
-            record_details_for_delete = row.to_dict()
-        except IndexError:
-            # 如果找不到原始紀錄，則跳過，避免刪除時報錯
-            st.error(f"找不到文件ID為 {row['id']} 的原始紀錄，可能已被刪除。")
+            record_id = row['id']
+            record_type = row['type']
+            record_amount = row['amount']
+            record_date = row['date']
+            record_category = row['category']
+            record_note = row['note']
+            
+            # 檢查金額是否為有效數字 (防止空值或 NaN 導致錯誤)
+            if pd.isna(record_amount):
+                st.warning(f"跳過無效金額的紀錄: {record_id}")
+                continue
+                
+        except Exception as e:
+            st.error(f"在迭代行時發生錯誤 (可能是欄位遺失或數據類型問題): {e}")
             continue
             
-        color = "#28a745" if row['type'] == '收入' else "#dc3545"
-        amount_sign = "+" if row['type'] == '收入' else "-"
+        color = "#28a745" if record_type == '收入' else "#dc3545"
+        amount_sign = "+" if record_type == '收入' else "-"
         
         # 使用 container 和 columns 創建行布局
         with st.container():
-            # 調整 st.columns 比例，使備註欄位有足夠的空間
-            # 比例: [日期 1.2, 類別 1, 金額 1, 類型 0.7, 備註 6, 操作 1] (總和 10.9 - 調整為 10 份的比例: [1.2, 1, 1, 0.7, 5, 1.1])
-            # 重新分配以符合標題列的寬度 [12%, 10%, 10%, 7%, 50%, 11%]
+            # 比例: [日期 12%, 類別 10%, 金額 10%, 類型 7%, 備註 50%, 操作 11%]
             col_date, col_cat, col_amount, col_type, col_note, col_btn_action = st.columns([12, 10, 10, 7, 50, 11])
             
-            # 使用 st.write 顯示交易細節
-            col_date.markdown(f"<div style='padding-left: 1rem;'>{row['date'].strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
-            col_cat.write(row['category'])
-            col_amount.markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {row['amount']:,.0f}</span>", unsafe_allow_html=True)
-            col_type.write(row['type'])
-            col_note.write(row['note']) # 備註內容
+            # 使用 st.markdown/write 顯示交易細節
+            col_date.markdown(f"<div style='padding-left: 1rem;'>{record_date.strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
+            col_cat.write(record_category)
+            col_amount.markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
+            col_type.write(record_type)
+            col_note.write(record_note) # 備註內容
             
             # 刪除按鈕
-            if col_btn_action.button("刪除", key=f"delete_{row['id']}", type="secondary", help="刪除此筆交易紀錄並更新餘額"):
+            if col_btn_action.button("刪除", key=f"delete_{record_id}", type="secondary", help="刪除此筆交易紀錄並更新餘額"):
                 delete_record(
                     db=db,
                     user_id=user_id,
-                    record_id=record_details_for_delete['id'],
-                    record_type=record_details_for_delete['type'],
-                    record_amount=record_details_for_delete['amount'],
-                    current_balance=st.session_state.current_balance
+                    record_id=record_id,
+                    record_type=record_type,
+                    record_amount=record_amount
                 )
         st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True) # 分隔線
             
 
 if __name__ == '__main__':
     main()
-
