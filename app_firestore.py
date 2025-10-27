@@ -196,6 +196,10 @@ def add_record(db, user_id, date, record_type, category, amount, note):
     """新增交易紀錄並更新餘額"""
     records_collection = get_record_ref(db, user_id)
     
+    # 修正點：將 datetime.date 轉換為 datetime.datetime，因為 Firestore 不支援 date object
+    if isinstance(date, datetime.date) and not isinstance(date, datetime.datetime):
+        date = datetime.datetime.combine(date, datetime.time(0, 0, 0)) # 轉換為當日午夜時間
+
     new_record = {
         'id': str(uuid.uuid4()), # 在 Firestore 中，文件 ID 和 document 內容中的 ID 一致
         'date': date,
