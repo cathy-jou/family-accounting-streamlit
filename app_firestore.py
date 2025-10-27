@@ -227,7 +227,6 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             doc_data = doc.to_dict()
             doc_data['id'] = doc.id
             # 將 Firestore Timestamp 轉換為 Python datetime (如果需要)
-            # Pandas 的 to_datetime 通常能自動處理
             if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
                  # 只取日期部分，並確保是 date 物件
                  doc_data['date'] = doc_data['date'].to_pydatetime().date()
@@ -265,8 +264,8 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
         # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
         # errors='coerce' 會將無法轉換的值設為 NaT (Not a Time)
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        # 移除日期轉換失敗的行 (NaT)
-        df = df.dropna(subset=['date'])
+        # 移除日期轉換失敗的行 (NaT) - 改為保留，後續處理顯示
+        # df = df.dropna(subset=['date'])
 
         # 轉換其他類型
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
@@ -276,8 +275,8 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
-        # 只保留預期的欄位
-        df = df[expected_columns]
+        # 只保留預期的欄位 - 修正: 確保不丟失必要欄位
+        # df = df[expected_columns]
 
         return df
 
@@ -291,9 +290,17 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
     """向 Firestore 添加一筆交易紀錄"""
     records_ref = get_record_ref(db, user_id)
     try:
-        # 將 date 轉換為 datetime 儲存
-        if isinstance(record_data.get('date'), datetime.date):
-            record_data['date'] = datetime.datetime.combine(record_data['date'], datetime.time.min)
+        # 將 date 轉換為 datetime 儲存 (Firestore 要求 datetime)
+        record_date = record_data.get('date')
+        if isinstance(record_date, datetime.date):
+            record_data['date'] = datetime.datetime.combine(record_date, datetime.time.min)
+        elif not isinstance(record_date, datetime.datetime):
+             # 如果不是 date 或 datetime，嘗試轉換或設為當前時間
+             record_data['date'] = datetime.datetime.now()
+             st.warning("日期格式無法識別，已使用當前時間。")
+
+        # 確保 timestamp 是 datetime
+        record_data['timestamp'] = datetime.datetime.now()
 
         doc_ref = records_ref.add(record_data) # add 會返回 DocumentReference 和 timestamp
         st.toast("✅ 交易紀錄已新增！", icon="🎉")
@@ -305,6 +312,7 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
 
     except Exception as e:
         st.error(f"❌ 新增紀錄失敗: {e}")
+        st.error(f"紀錄數據: {record_data}") # 打印出問題數據幫助除錯
 
 def delete_record(db: firestore.Client, user_id: str, record_id: str, record_type: str, record_amount: float):
     """從 Firestore 刪除一筆交易紀錄並回滾餘額"""
@@ -327,18 +335,28 @@ def delete_record(db: firestore.Client, user_id: str, record_id: str, record_typ
 def load_bank_accounts(db: firestore.Client, user_id: str) -> dict:
     """從 Firestore 加載銀行帳戶列表"""
     accounts_ref = get_bank_accounts_ref(db, user_id)
-    doc = accounts_ref.get()
-    if doc.exists:
-        return doc.to_dict().get("accounts", {}) # 返回字典 {帳戶ID: {'name': '名稱', 'balance': 金額}}
-    else:
-        # 如果文件不存在，創建一個空的
-        accounts_ref.set({"accounts": {}})
+    try:
+        doc = accounts_ref.get()
+        if doc.exists:
+            # 確保返回的是字典
+            data = doc.to_dict()
+            return data.get("accounts", {}) if isinstance(data, dict) else {}
+        else:
+            # 如果文件不存在，創建一個空的
+            accounts_ref.set({"accounts": {}})
+            return {}
+    except Exception as e:
+        st.error(f"❌ 加載銀行帳戶失敗: {e}")
         return {}
+
 
 def update_bank_accounts(db: firestore.Client, user_id: str, accounts_data: dict):
     """更新 Firestore 中的銀行帳戶列表"""
     accounts_ref = get_bank_accounts_ref(db, user_id)
     try:
+        # 確保 accounts_data 是字典
+        if not isinstance(accounts_data, dict):
+            raise TypeError("accounts_data 必須是字典")
         accounts_ref.set({"accounts": accounts_data, 'last_updated': datetime.datetime.now()})
         # 清除快取
         load_bank_accounts.clear()
@@ -387,12 +405,13 @@ def convert_df_to_csv(df: pd.DataFrame):
         return "".encode('utf-8')
 
     # 使用實際存在的欄位列表進行選取
-    df_export = df_renamed[existing_columns_in_order]
+    df_export = df_renamed[existing_columns_in_order].copy() # 使用 .copy() 避免 SettingWithCopyWarning
 
     # --- 格式化 ---
     # 格式化日期 (只保留 YYYY-MM-DD)
     if '日期' in df_export.columns:
         # 確保日期是 datetime 類型再格式化
+        # 先轉換為 datetime64[ns]，處理 NaT，再格式化
         df_export['日期'] = pd.to_datetime(df_export['日期'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('')
 
     # 格式化儲存時間 (如果存在)
@@ -445,16 +464,20 @@ def display_dashboard(db, user_id):
         try:
             # 確保 'date' 欄位存在且是 datetime 類型
             if 'date' in df_records.columns and pd.api.types.is_datetime64_any_dtype(df_records['date']):
-                df_records['month'] = df_records['date'].dt.to_period('M').astype(str)
-                df_monthly = df_records.groupby(['month', 'type'])['amount'].sum().reset_index()
+                # 確保 DataFrame 非空才計算
+                if not df_records['date'].dropna().empty:
+                    df_records['month'] = df_records['date'].dt.to_period('M').astype(str)
+                    df_monthly = df_records.groupby(['month', 'type'])['amount'].sum().reset_index()
 
-                chart_trend = alt.Chart(df_monthly).mark_bar().encode(
-                    x=alt.X('month', title='月份', sort='ascending'),
-                    y=alt.Y('amount', title='金額 (NTD)'),
-                    color=alt.Color('type', title='類型', scale=alt.Scale(domain=['收入', '支出'], range=['#28a745', '#dc3545'])),
-                    tooltip=['month', 'type', alt.Tooltip('amount', format=',.0f')]
-                ).properties(height=300).interactive()
-                st.altair_chart(chart_trend, use_container_width=True)
+                    chart_trend = alt.Chart(df_monthly).mark_bar().encode(
+                        x=alt.X('month', title='月份', sort='ascending'),
+                        y=alt.Y('amount', title='金額 (NTD)'),
+                        color=alt.Color('type', title='類型', scale=alt.Scale(domain=['收入', '支出'], range=['#28a745', '#dc3545'])),
+                        tooltip=['month', 'type', alt.Tooltip('amount', format=',.0f')]
+                    ).properties(height=300).interactive()
+                    st.altair_chart(chart_trend, use_container_width=True)
+                else:
+                    st.info("日期數據不足，無法生成月度趨勢圖。")
             else:
                  st.warning("日期欄位格式不正確，無法生成月度趨勢圖。")
 
@@ -489,12 +512,13 @@ def display_dashboard(db, user_id):
                              alt.Tooltip("percentage", format=".1%", title="佔比")]
                 ).properties(title="支出金額分佈圖")
 
-                text = base.mark_text(radius=140).encode(
-                    text=alt.Text("percentage", format=".1%"),
-                    order=alt.Order("amount", sort="descending"),
-                    color=alt.value("black") # 固定標籤顏色
-                )
-                st.altair_chart(pie + text, use_container_width=True)
+                # 移除文字標籤，避免重疊
+                # text = base.mark_text(radius=140).encode(
+                #     text=alt.Text("percentage", format=".1%"),
+                #     order=alt.Order("amount", sort="descending"),
+                #     color=alt.value("black") # 固定標籤顏色
+                # )
+                st.altair_chart(pie, use_container_width=True) # 只顯示 pie chart
             else:
                 st.info("ℹ️ 支出金額皆為零，無法生成分佈圖。")
         else:
@@ -597,7 +621,8 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
     try:
         # 只查詢支出類別
         query = records_ref.where('type', '==', '支出').select(['category']).stream()
-        categories = set(doc.to_dict().get('category') for doc in query if doc.to_dict().get('category'))
+        # 使用 set 處理 None 的情況
+        categories = set(doc.to_dict().get('category') for doc in query if doc.to_dict() and doc.to_dict().get('category'))
         return sorted(list(categories))
     except Exception as e:
         # st.warning(f"獲取歷史類別失敗: {e}") # 正式版可移除警告
@@ -608,7 +633,7 @@ def display_records_list(db, user_id, df_records):
     """顯示交易紀錄列表，包含篩選和刪除"""
     st.markdown("## 📜 交易紀錄")
 
-    if df_records.empty:
+    if df_records is None or df_records.empty:
         st.info("ℹ️ 目前沒有任何交易紀錄。")
         return
 
@@ -623,8 +648,13 @@ def display_records_list(db, user_id, df_records):
          all_months = []
          selected_month = None
     else:
-        df_records['month_year_period'] = df_records['date'].dt.to_period('M')
-        all_months = sorted(df_records['month_year_period'].unique().astype(str), reverse=True)
+        # 使用 .dt accessor 前確保非空且無 NaT
+        date_series = df_records['date'].dropna()
+        if not date_series.empty:
+            df_records['month_year_period'] = df_records['date'].dt.to_period('M')
+            all_months = sorted(df_records['month_year_period'].dropna().unique().astype(str), reverse=True)
+        else:
+            all_months = []
 
         if not all_months:
              selected_month = None
@@ -653,14 +683,16 @@ def display_records_list(db, user_id, df_records):
              selected_month_period = pd.Period(selected_month, freq='M')
              # 確保 'month_year_period' 欄位存在
              if 'month_year_period' in df_filtered.columns:
-                 df_filtered = df_filtered[df_filtered['month_year_period'] == selected_month_period]
+                 # 使用 .loc 避免 SettingWithCopyWarning
+                 df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
              else:
                  st.warning("無法按月份篩選，月份欄位處理出錯。")
         except (ValueError, TypeError):
              st.error("月份格式錯誤，無法篩選。")
 
     if type_filter != '全部':
-        df_filtered = df_filtered[df_filtered['type'] == type_filter]
+        # 使用 .loc 避免 SettingWithCopyWarning
+        df_filtered = df_filtered.loc[df_filtered['type'] == type_filter].copy()
 
     # 確保篩選後按日期倒序
     df_filtered = df_filtered.sort_values(by='date', ascending=False)
@@ -670,13 +702,17 @@ def display_records_list(db, user_id, df_records):
     if not df_filtered.empty:
         csv = convert_df_to_csv(df_filtered) # 使用篩選後的數據
         file_name_month = selected_month if selected_month else "all"
-        col3.download_button(
-            label="📥 下載篩選結果 (CSV)",
-            data=csv,
-            file_name=f'交易紀錄_{file_name_month}.csv',
-            mime='text/csv',
-            key='download_csv_button'
-        )
+        # 檢查 csv 是否為空字節串
+        if csv:
+            col3.download_button(
+                label="📥 下載篩選結果 (CSV)",
+                data=csv,
+                file_name=f'交易紀錄_{file_name_month}.csv',
+                mime='text/csv',
+                key='download_csv_button'
+            )
+        else:
+            col3.warning("CSV 轉換失敗，無法下載。")
     else:
         col3.info("沒有符合篩選條件的紀錄可供下載。")
 
@@ -706,7 +742,9 @@ def display_records_list(db, user_id, df_records):
                      try:
                           record_date_str = record_date_obj.strftime('%Y-%m-%d')
                      except AttributeError: # 如果不是 datetime 物件
-                          record_date_str = str(record_date_obj) # 直接轉字串
+                          record_date_str = str(record_date_obj).split(' ')[0] # 嘗試取日期部分
+                     except ValueError: # 無效日期
+                          record_date_str = "日期格式無效"
 
                 record_type = row.get('type', 'N/A')
                 record_category = row.get('category', 'N/A')
@@ -777,24 +815,31 @@ def display_bank_account_management(db, user_id):
 
     # 加載現有帳戶
     bank_accounts = load_bank_accounts(db, user_id) # 返回字典 {id: {'name': '...', 'balance': ...}}
-    account_list = list(bank_accounts.values()) # 轉換為列表方便顯示
+    account_list = list(bank_accounts.values()) if isinstance(bank_accounts, dict) else [] # 確保是字典
 
     # 顯示帳戶列表和總額
-    if account_list:
-        total_manual_balance = sum(acc.get('balance', 0) for acc in account_list)
+    total_manual_balance = 0
+    if bank_accounts and isinstance(bank_accounts, dict):
+        total_manual_balance = sum(float(acc.get('balance', 0)) for acc in bank_accounts.values() if isinstance(acc, dict))
         st.metric("手動帳戶總餘額", f"NT$ {total_manual_balance:,.0f}")
 
         st.markdown("### 現有帳戶列表")
-        for acc_id, acc_data in bank_accounts.items():
+        # 複製一份 keys 來迭代，避免在迭代過程中修改字典
+        account_ids = list(bank_accounts.keys())
+        for acc_id in account_ids:
+            acc_data = bank_accounts.get(acc_id)
+            if not isinstance(acc_data, dict): continue # 跳過無效數據
+
             col_name, col_balance, col_actions = st.columns([3, 2, 1])
             col_name.write(acc_data.get('name', '未命名帳戶'))
-            col_balance.metric("", f"{acc_data.get('balance', 0):,.0f}") # 使用 metric 顯示餘額
+            col_balance.metric("", f"{float(acc_data.get('balance', 0)):,.0f}") # 使用 metric 顯示餘額
 
-            # 刪除按鈕 (可以添加編輯功能)
+            # 刪除按鈕
             if col_actions.button("🗑️ 刪除", key=f"del_acc_{acc_id}", type="secondary"):
-                del bank_accounts[acc_id] # 從字典中移除
-                update_bank_accounts(db, user_id, bank_accounts)
-                st.rerun() # 更新後重跑
+                if acc_id in bank_accounts: # 再次確認 key 存在
+                    del bank_accounts[acc_id] # 從字典中移除
+                    update_bank_accounts(db, user_id, bank_accounts)
+                    st.rerun() # 更新後重跑
         st.markdown("---")
     else:
         st.info("尚未新增任何銀行帳戶。")
@@ -808,6 +853,7 @@ def display_bank_account_management(db, user_id):
 
         if submitted and new_account_name:
             new_account_id = str(uuid.uuid4()) # 為新帳戶生成唯一 ID
+            if not isinstance(bank_accounts, dict): bank_accounts = {} # 確保是字典
             bank_accounts[new_account_id] = {'name': new_account_name, 'balance': float(new_account_balance)}
             update_bank_accounts(db, user_id, bank_accounts)
             st.rerun() # 新增後重跑
