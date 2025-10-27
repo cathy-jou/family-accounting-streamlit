@@ -143,14 +143,14 @@ def get_firestore_client():
         st.error("🚨 Firestore 初始化失敗！")
         st.error(f"原始錯誤訊息: {e}")
         st.warning("請確保您的環境已正確配置 Google Cloud 憑證：")
-        st.markdown("""
-            * **Streamlit Cloud:** 在 `Secrets` 中設定 `firestore` 鍵，其值為您的服務帳戶 JSON 內容（包含 `project_id` 等）。
-            * **本地開發:**
-                * 設定 `GOOGLE_APPLICATION_CREDENTIALS` 環境變數指向您的服務帳戶 JSON 檔案路徑。
-                * 或使用 `gcloud auth application-default login` 登入。
-            * **確認 Project ID:** 錯誤訊息 `"Project was not passed..."` 表示客戶端無法確定專案 ID。請確保您的服務帳戶 JSON 或 gcloud 配置包含正確的專案 ID。
-            * **檢查 IAM 權限:** 確保服務帳戶擁有 `Cloud Firestore User` 或更高權限。
-        """)
+        # st.markdown("""
+        #     * **Streamlit Cloud:** 在 `Secrets` 中設定 `firestore` 鍵，其值為您的服務帳戶 JSON 內容（包含 `project_id` 等）。
+        #     * **本地開發:**
+        #         * 設定 `GOOGLE_APPLICATION_CREDENTIALS` 環境變數指向您的服務帳戶 JSON 檔案路徑。
+        #         * 或使用 `gcloud auth application-default login` 登入。
+        #     * **確認 Project ID:** 錯誤訊息 `"Project was not passed..."` 表示客戶端無法確定專案 ID。請確保您的服務帳戶 JSON 或 gcloud 配置包含正確的專案 ID。
+        #     * **檢查 IAM 權限:** 確保服務帳戶擁有 `Cloud Firestore User` 或更高權限。
+        # """)
         st.stop() # 初始化失敗時停止應用程式
         return None
 
@@ -926,20 +926,20 @@ def app():
         st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
 
     # --- 頁面內容渲染 ---
-    if page == "📊 儀表板":
+    if page == "儀表板":
         display_dashboard(db, user_id)
 
-    elif page == "📝 新增紀錄":
+    elif page == "新增紀錄":
         display_record_input(db, user_id)
 
-    elif page == "📜 交易紀錄":
+    elif page == "交易紀錄":
         df_records = get_all_records(db, user_id)
         display_records_list(db, user_id, df_records)
 
-    elif page == "🏦 帳戶管理":
+    elif page == "帳戶管理":
         display_bank_account_management(db, user_id)
 
-    elif page == "⚙️ 設定餘額":
+    elif page == "設定餘額":
         current_balance = get_current_balance(db, user_id)
         display_balance_management(db, user_id, current_balance)
 
