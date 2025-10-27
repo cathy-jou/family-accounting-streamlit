@@ -461,7 +461,7 @@ def convert_df_to_csv(df: pd.DataFrame):
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
     """顯示儀表板主頁內容"""
-    st.title("👨‍👩‍👧‍👦 雲端家庭記帳本")
+    st.title("雲端家庭記帳本")
 
     # 獲取數據
     df_records = get_all_records(db, user_id)
@@ -556,7 +556,7 @@ def display_dashboard(db, user_id):
 
 def display_record_input(db, user_id):
     """顯示新增交易紀錄的表單"""
-    st.markdown("## 📝 新增交易紀錄")
+    st.markdown("##新增交易紀錄")
 
     # 將類型選擇移到 Form 外部，以便觸發類別更新
     record_type = st.radio(
@@ -852,7 +852,7 @@ def display_balance_management(db, user_id, current_balance):
 
 def display_bank_account_management(db, user_id):
     """顯示銀行帳戶管理區塊"""
-    st.markdown("## 🏦 銀行帳戶管理 (手動餘額)")
+    st.markdown("## 銀行帳戶管理 (手動餘額)")
     st.info("ℹ️ 在此處新增您的銀行、信用卡或電子支付帳戶，並手動記錄其當前餘額。")
 
     # 加載現有帳戶
