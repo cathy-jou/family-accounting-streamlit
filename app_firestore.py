@@ -100,15 +100,15 @@ def get_user_id():
 def get_firestore_client():
     """
     初始化 Firestore 客戶端。
-    它從 .streamlit/secrets.toml 中的 [gcp_service_account] 區段讀取認證資訊。
+    它從 .streamlit/secrets.toml 中的 [firestore] 區段讀取認證資訊。
     """
-    # 1. 檢查 secrets 配置是否存在
-    if "gcp_service_account" not in st.secrets:
+    # *** 修正點 1: 檢查密鑰名稱從 'gcp_service_account' 改為 'firestore' ***
+    if "firestore" not in st.secrets:
         # --- 診斷程式碼 ---
         available_keys = list(st.secrets.keys())
         error_msg = (
             f"❌ 錯誤：找不到服務帳戶配置！\n\n"
-            f"請確保您的 `.streamlit/secrets.toml` 檔案中包含 `[gcp_service_account]` 區段。\n\n"
+            f"請確保您的 `.streamlit/secrets.toml` 檔案中包含 `[firestore]` 區段。\n\n"
             f"--- Streamlit 診斷訊息 ---\n"
             f"目前 Streamlit 讀取到的密鑰鍵值為: {available_keys}\n"
             f"--------------------------"
@@ -118,8 +118,8 @@ def get_firestore_client():
         return None
     
     try:
-        # 2. 使用 st.secrets 字典來初始化 Firestore 客戶端
-        db = firestore.Client.from_service_account_info(st.secrets["gcp_service_account"])
+        # *** 修正點 2: 使用 st.secrets["firestore"] 初始化客戶端 ***
+        db = firestore.Client.from_service_account_info(st.secrets["firestore"])
         return db
     except Exception as e:
         # 3. 錯誤處理，提供格式提示
@@ -416,14 +416,14 @@ def app():
     st.header("📋 所有交易紀錄")
     
     # 創建一個只包含必要欄位的數據框用於顯示
-    display_df = df_records[['id', 'date', 'type', 'category', 'amount', 'note']].rename(columns={
-        'id': '文件ID',
-        'date': '日期',
-        'type': '類型',
-        'category': '類別',
-        'amount': '金額',
-        'note': '備註'
-    })
+    # display_df = df_records[['id', 'date', 'type', 'category', 'amount', 'note']].rename(columns={
+    #     'id': '文件ID',
+    #     'date': '日期',
+    #     'type': '類型',
+    #     'category': '類別',
+    #     'amount': '金額',
+    #     'note': '備註'
+    # })
     
     # 調整 st.columns 比例
     col_date_header, col_cat_header, col_amount_header, col_type_header, col_note_header, col_btn_header = st.columns([1.2, 1, 1, 0.7, 6, 1])
