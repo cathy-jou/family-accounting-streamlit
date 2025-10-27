@@ -150,7 +150,6 @@ def get_firestore_client():
                 * 或使用 `gcloud auth application-default login` 登入。
             * **確認 Project ID:** 錯誤訊息 `"Project was not passed..."` 表示客戶端無法確定專案 ID。請確保您的服務帳戶 JSON 或 gcloud 配置包含正確的專案 ID。
             * **檢查 IAM 權限:** 確保服務帳戶擁有 `Cloud Firestore User` 或更高權限。
-            * **檢查 `secrets.toml` 格式:** 確保 `private_key` 使用 `'''` 或 `"""` 包裹且格式正確。
         """)
         st.stop() # 初始化失敗時停止應用程式
         return None
