@@ -326,8 +326,8 @@ def app():
                 else:
                     # 3. 提交數據時，使用來自外部的 record_type
                     add_record(db, user_id, date, record_type, category, amount, note)
-                    # 提交後需要強制 Streamlit 重新運行以更新數據
-                    st.experimental_rerun()
+                    # 修正點 1: 將 st.experimental_rerun() 替換為 st.rerun()
+                    st.rerun()
     
     
     # ---------------------------------------------
@@ -474,8 +474,8 @@ def app():
                     record_type=record_type,
                     record_amount=record_amount
                 )
-                # 刪除後需要強制 Streamlit 重新運行以更新數據
-                st.experimental_rerun()
+                # 修正點 2: 將 st.experimental_rerun() 替換為 st.rerun()
+                st.rerun()
 
 
 if __name__ == "__main__":
