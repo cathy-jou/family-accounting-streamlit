@@ -104,26 +104,19 @@ def set_ui_styles():
         .expense-card p {{ 
             color: #dc3545; 
             }}
-        /* --- 📌 (新) 頂部導航 (st.radio) 置中 --- */
-        div[data-testid="stRadio"] div[role="radiogroup"] {{
+        /* --- 頁籤 (Tabs) 置中 (已修正) --- */
+        div[data-testid="stTabs"] div[role="tablist"] {{
             display: flex;
             justify-content: center;
         }}
-
-        /* --- 📌 (新) 調整 st.radio 按鈕字體 --- */
-        
-        /* 調整未選中按鈕的字體和顏色 */
-        div[data-testid="stRadio"] label:not(:has(input:checked)) p {{
-            font-size: 30px !important;       
-            color: #6c757d !important;        
-            font-weight: normal !important;   
+        /* --- 📌 調整 Tabs 導航選單字體  --- */
+        div[data-testid="stTabs"] div[role="tablist"] button {{
+            font-size: 50px;  /* 調整所有頁籤的字體大小 (例如 50px) */
+            color: #6c757d;   /* 調整「未選中」頁籤的顏色 (例如 灰色) */
         }}
-        
-        /* 調整選中按鈕的字體和顏色 */
-        div[data-testid="stRadio"] label:has(input:checked) p {{
-            font-size: 30px !important;       
-            color: #000000 !important;        
-            font-weight: 600 !important;     
+        div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] {{
+            color: #000000;   /* 調整「已選中」頁籤的顏色 (例如 黑色) */
+            font-weight: 1000; /* 讓選中的頁籤字體加粗 (可選) */
         }}
         /* --- 📌 結束 --- */
         </style>
@@ -992,7 +985,7 @@ def display_bank_account_management(db, user_id):
             st.warning("請輸入帳戶名稱。")
 
 
-# --- 7. 主應用程式框架 (使用 st.radio 實現「有狀態」的頂部導航) ---
+# --- 7. 主應用程式框架 (使用 st.tabs) ---
 def app():
     """主應用程式入口點"""
     set_ui_styles()
@@ -1001,50 +994,49 @@ def app():
     db = get_firestore_client()
     user_id = get_user_id()
 
-    # # 側邊欄 (只保留圖片和用戶 ID)
+    # # 側邊欄 (這段程式碼在您的版本中應該是註解掉的，保持原樣即可)
     # with st.sidebar:
+    #     # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
     #     st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
     #     st.markdown("---")
-    #     st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
-    #     st.markdown("---")
+    #     # 您也可以在側邊欄放一些說明文字
     #     st.markdown("### 關於此應用")
     #     st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
 
 
-    # --- 頁面內容渲染 (使用 st.radio) ---
+    # --- 頁面內容渲染 (使用 st.tabs) ---
     
-    # 📌 修正 #1: 將 st.radio 從側邊欄移到這裡
-    # key='page_selector' 會將選擇保存在 session_state 中
-    # horizontal=True 讓它看起來像 tabs
-    page_list = ["儀表板", "新增/查看紀錄", "帳戶管理", "設定餘額"]
-    page = st.radio(
-        "導航選單",
-        page_list,
-        key='page_selector', # 📌 關鍵：這會儲存您的頁面狀態
-        horizontal=True,
-        label_visibility="collapsed" # 隱藏 "導航選單" 標籤，讓它更乾淨
-    )
+    # 📌 修正 #1: 將 "交易紀錄" 移除，只保留 4 個頁籤
+    tab_list = ["儀表板", "新增/查看紀錄", "帳戶管理", "設定餘額"]
+    
+    # 📌 修正 #2: 只解構 4 個 tab 變數
+    tab1, tab2, tab3, tab4 = st.tabs(tab_list)
 
-    # 📌 修正 #2: 使用 if/elif 結構，根據 page 的狀態來渲染內容
-    if page == "儀表板":
+    # 📌 2. 將原來的 if/elif 內容放入對應的 tab 中
+    with tab1:
+        # 原本 "儀表板" 的內容
         display_dashboard(db, user_id)
 
-    elif page == "新增/查看紀錄":
-        # (1) 顯示 "新增紀錄" 的區塊
+    # 📌 修正 #3: 將 "新增" 和 "查看" 合併到 tab2
+    with tab2:
+        # (1) 先顯示 "新增紀錄" 的區塊
         display_record_input(db, user_id)
         
         # (2) 加入分隔線
         st.markdown("---") 
         
         # (3) 在下方接著顯示 "交易紀錄" 的區塊
-        # (確保您使用的是 get_all_records_v2)
-        df_records = get_all_records_v2(db, user_id) 
+        df_records = get_all_records(db, user_id) 
         display_records_list(db, user_id, df_records)
 
-    elif page == "帳戶管理":
+    # 📌 修正 #4: "帳戶管理" 移到 tab3
+    with tab3:
+        # 原本 "帳戶管理" 的內容
         display_bank_account_management(db, user_id)
 
-    elif page == "設定餘額":
+    # 📌 修正 #5: "設定餘額" 移到 tab4
+    with tab4:
+        # 原本 "設定餘額" 的內容
         current_balance = get_current_balance(db, user_id)
         display_balance_management(db, user_id, current_balance)
 
@@ -1057,5 +1049,3 @@ if __name__ == '__main__':
         initial_sidebar_state="expanded"
     )
     app()
-
-
