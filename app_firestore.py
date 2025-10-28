@@ -907,7 +907,7 @@ def app():
 
     # 側邊欄導航
     with st.sidebar:
-        st.image("assets/family.JPG", use_container_width=True)
+        st.image("assets/family.JPG", use_container_width=True, width=150)
         st.markdown("---")
         st.markdown("## 導航選單")
         page = st.radio(
