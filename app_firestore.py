@@ -109,6 +109,16 @@ def set_ui_styles():
             display: flex;
             justify-content: center;
         }}
+        /* --- 📌 調整 Tabs 導航選單字體  --- */
+        div[data-testid="stTabs"] div[role="tablist"] button {{
+            font-size: 20px;  /* 調整所有頁籤的字體大小 (例如 20px) */
+            color: #6c757d;   /* 調整「未選中」頁籤的顏色 (例如 灰色) */
+        }}
+        div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] {{
+            color: #0d6efd;   /* 調整「已選中」頁籤的顏色 (例如 亮藍色) */
+            font-weight: 600; /* 讓選中的頁籤字體加粗 (可選) */
+        }}
+        /* --- 📌 結束 --- */
         </style>
     """
     st.markdown(css, unsafe_allow_html=True)
