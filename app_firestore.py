@@ -383,6 +383,11 @@ def delete_record(db: firestore.Client, user_id: str, record_id: str, record_typ
     record_doc_ref = get_record_ref(db, user_id).document(record_id)
     try:
         record_doc_ref.delete()
+        
+        # 📌 --- 修正：在這裡手動清除快取 --- 📌
+        # 確保 get_all_records 函式的快取被清除
+        get_all_records.clear() 
+        
         st.toast("🗑️ 交易紀錄已刪除！", icon="✅")
 
         # 回滾餘額
