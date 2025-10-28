@@ -104,12 +104,11 @@ def set_ui_styles():
         .expense-card p {{ 
             color: #dc3545; 
             }}
-        /* --- 頁籤 (Tabs) 置中 --- */
-        /* 找到 Tabs 元件的按鈕列 (role="tablist") */
-        div[data-testid="stTabs"] div[role="tablist"] {
+        /* --- 頁籤 (Tabs) 置中 (已修正) --- */
+        div[data-testid="stTabs"] div[role="tablist"] {{
             display: flex;
             justify-content: center;
-        }
+        }}
         </style>
     """
     st.markdown(css, unsafe_allow_html=True)
