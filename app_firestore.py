@@ -176,7 +176,7 @@ def get_bank_accounts_ref(db: firestore.Client, user_id: str):
 
 
 # --- 4. 數據操作函數 ---
-@st.cache_data(ttl=60) # 緩存餘額數據 60 秒
+@st.cache_data(ttl=60, hash_funcs={firestore.Client: id}) # 緩存餘額數據 60 秒
 def get_current_balance(db: firestore.Client, user_id: str) -> float:
     """從 Firestore 獲取當前總餘額"""
     if db is None: return 0.0 # 如果 db 未初始化
