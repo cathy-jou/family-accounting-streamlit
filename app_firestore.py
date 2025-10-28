@@ -994,7 +994,7 @@ def app():
     db = get_firestore_client()
     user_id = get_user_id()
 
-    # # 側邊欄 
+    # # 側邊欄 (這段程式碼在您的版本中應該是註解掉的，保持原樣即可)
     # with st.sidebar:
     #     # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
     #     st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
@@ -1006,29 +1006,38 @@ def app():
 
     # --- 頁面內容渲染 (使用 st.tabs) ---
     
-    # 📌 1. 在主頁面頂部建立頁籤
-    tab_list = ["儀表板", "新增紀錄", "交易紀錄", "帳戶管理", "設定餘額"]
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(tab_list)
+    # 📌 修正 #1: 將 "交易紀錄" 移除，只保留 4 個頁籤
+    tab_list = ["儀表板", "新增/查看紀錄", "帳戶管理", "設定餘額"]
+    
+    # 📌 修正 #2: 只解構 4 個 tab 變數
+    tab1, tab2, tab3, tab4 = st.tabs(tab_list)
 
     # 📌 2. 將原來的 if/elif 內容放入對應的 tab 中
     with tab1:
         # 原本 "儀表板" 的內容
         display_dashboard(db, user_id)
 
+    # 📌 修正 #3: 將 "新增" 和 "查看" 合併到 tab2
     with tab2:
-        # 原本 "新增紀錄" 的內容
+        # (1) 先顯示 "新增紀錄" 的區塊
         display_record_input(db, user_id)
-
-    with tab3:
-        # 原本 "交易紀錄" 的內容
-        df_records = get_all_records(db, user_id)
+        
+        # (2) 加入分隔線
+        st.markdown("---") 
+        
+        # (3) 在下方接著顯示 "交易紀錄" 的區塊
+        # (這是
+        # 📌 確保您使用的是 get_all_records_v2 (您最新的版本)
+        df_records = get_all_records_v2(db, user_id) 
         display_records_list(db, user_id, df_records)
 
-    with tab4:
+    # 📌 修正 #4: "帳戶管理" 移到 tab3
+    with tab3:
         # 原本 "帳戶管理" 的內容
         display_bank_account_management(db, user_id)
 
-    with tab5:
+    # 📌 修正 #5: "設定餘額" 移到 tab4
+    with tab4:
         # 原本 "設定餘額" 的內容
         current_balance = get_current_balance(db, user_id)
         display_balance_management(db, user_id, current_balance)
