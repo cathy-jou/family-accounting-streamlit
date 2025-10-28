@@ -792,7 +792,7 @@ def display_records_list(db, user_id, df_records):
             color = "#28a745" if record_type == '收入' else "#dc3545"
             amount_sign = "+" if record_type == '收入' else "-"
 
-            with st.container(border=True, height=None): # 使用 container 包裝每一行
+            with st.container(border=True): # 使用 container 包裝每一行
                 # 使用與標題相同的比例
                 row_cols = st.columns([1.2, 1, 1, 0.7, 9, 1])
                 row_cols[0].write(record_date_str)
