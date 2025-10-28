@@ -338,17 +338,32 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
     if db is None: return
     records_ref = get_record_ref(db, user_id)
     try:
-        # 將 date 轉換為 datetime 儲存 (Firestore 要求 datetime)
-        record_date = record_data.get('date')
-        if isinstance(record_date, datetime.date):
-            record_data['date'] = datetime.datetime.combine(record_date, datetime.time.min)
-        elif not isinstance(record_date, datetime.datetime):
-             # 如果不是 date 或 datetime，嘗試轉換或設為當前時間
-             record_data['date'] = datetime.datetime.now()
-             st.warning("日期格式無法識別，已使用當前時間。")
+        # 1. 獲取用戶選擇的日期 (這是一個 .date 物件)
+        record_date_obj = record_data.get('date') 
+        
+        # 2. 獲取當前的 *UTC* 時間 (使用 timezone-aware)
+        # 這樣可以確保無論伺服器在哪個時區，時間都是標準的
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        
+        # 3. 判斷 'date' 欄位的值
+        if isinstance(record_date_obj, datetime.date) and record_date_obj == now_utc.date():
+            # 情況 A: 如果用戶選擇的是 "今天" (以 UTC 日期為準)
+            # 讓 'date' 等於 'timestamp'，都設為當下精確的 UTC 時間
+            record_data['date'] = now_utc
+        
+        elif isinstance(record_date_obj, datetime.date):
+            # 情況 B: 如果用戶選擇的是 "過去的某天" (補登)
+            # 則將 'date' 設為那天的 "午夜 UTC" (00:00 UTC)
+            # 我們明確地加入 tzinfo=datetime.timezone.utc
+            record_data['date'] = datetime.datetime.combine(record_date_obj, datetime.time.min, tzinfo=datetime.timezone.utc)
+        
+        else:
+            # 情況 C: 備援，如果日期格式不對，也使用當下時間
+            st.warning("日期格式無法識別，已使用當前時間。")
+            record_data['date'] = now_utc
 
-        # 確保 timestamp 是 datetime
-        record_data['timestamp'] = datetime.datetime.now()
+        # 4. 確保 'timestamp' 欄位 *總是* 儲存當下精確的 UTC 時間
+        record_data['timestamp'] = now_utc
 
         doc_ref = records_ref.add(record_data) # add 會返回 DocumentReference 和 timestamp
         st.toast("✅ 交易紀錄已新增！", icon="🎉")
