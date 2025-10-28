@@ -993,7 +993,7 @@ def display_bank_account_management(db, user_id):
             st.warning("請輸入帳戶名稱。")
 
 
-# --- 7. 主應用程式框架 (使用 st.tabs) ---
+# --- 7. 主應用程式框架 (使用 st.radio 實現「有狀態」的頂部導航) ---
 def app():
     """主應用程式入口點"""
     set_ui_styles()
@@ -1002,23 +1002,22 @@ def app():
     db = get_firestore_client()
     user_id = get_user_id()
 
-    # 側邊欄 (保留圖片和用戶 ID)
-    with st.sidebar:
-        # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
-        st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
-        st.markdown("---")
-        st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
-        st.markdown("---")
-        st.markdown("### 關於此應用")
-        st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
+    # # 側邊欄 (只保留圖片和用戶 ID)
+    # with st.sidebar:
+    #     st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
+    #     st.markdown("---")
+    #     st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
+    #     st.markdown("---")
+    #     st.markdown("### 關於此應用")
+    #     st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
 
 
     # --- 頁面內容渲染 (使用 st.radio) ---
     
-    # 📌 修正 #1: 移除 st.tabs，改用 st.radio
+    # 📌 修正 #1: 將 st.radio 從側邊欄移到這裡
     # key='page_selector' 會將選擇保存在 session_state 中
     # horizontal=True 讓它看起來像 tabs
-    page_list = ["儀表板", "新增紀錄", "帳戶管理", "設定餘額"]
+    page_list = ["儀表板", "新增/查看紀錄", "帳戶管理", "設定餘額"]
     page = st.radio(
         "導航選單",
         page_list,
@@ -1039,8 +1038,8 @@ def app():
         st.markdown("---") 
         
         # (3) 在下方接著顯示 "交易紀錄" 的區塊
-        # (確保您使用的是 get_all_records)
-        df_records = get_all_records(db, user_id) 
+        # (確保您使用的是 get_all_records_v2)
+        df_records = get_all_records_v2(db, user_id) 
         display_records_list(db, user_id, df_records)
 
     elif page == "帳戶管理":
