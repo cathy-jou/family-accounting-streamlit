@@ -994,49 +994,51 @@ def app():
     db = get_firestore_client()
     user_id = get_user_id()
 
-    # # 側邊欄 (這段程式碼在您的版本中應該是註解掉的，保持原樣即可)
-    # with st.sidebar:
-    #     # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
-    #     st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
-    #     st.markdown("---")
-    #     # 您也可以在側邊欄放一些說明文字
-    #     st.markdown("### 關於此應用")
-    #     st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
+    # 側邊欄 (保留圖片和用戶 ID)
+    with st.sidebar:
+        # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
+        st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
+        st.markdown("---")
+        st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
+        st.markdown("---")
+        st.markdown("### 關於此應用")
+        st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
 
 
-    # --- 頁面內容渲染 (使用 st.tabs) ---
+    # --- 頁面內容渲染 (使用 st.radio) ---
     
-    # 📌 修正 #1: 將 "交易紀錄" 移除，只保留 4 個頁籤
-    tab_list = ["儀表板", "新增/查看紀錄", "帳戶管理", "設定餘額"]
-    
-    # 📌 修正 #2: 只解構 4 個 tab 變數
-    tab1, tab2, tab3, tab4 = st.tabs(tab_list)
+    # 📌 修正 #1: 移除 st.tabs，改用 st.radio
+    # key='page_selector' 會將選擇保存在 session_state 中
+    # horizontal=True 讓它看起來像 tabs
+    page_list = ["儀表板", "新增紀錄", "帳戶管理", "設定餘額"]
+    page = st.radio(
+        "導航選單",
+        page_list,
+        key='page_selector', # 📌 關鍵：這會儲存您的頁面狀態
+        horizontal=True,
+        label_visibility="collapsed" # 隱藏 "導航選單" 標籤，讓它更乾淨
+    )
 
-    # 📌 2. 將原來的 if/elif 內容放入對應的 tab 中
-    with tab1:
-        # 原本 "儀表板" 的內容
+    # 📌 修正 #2: 使用 if/elif 結構，根據 page 的狀態來渲染內容
+    if page == "儀表板":
         display_dashboard(db, user_id)
 
-    # 📌 修正 #3: 將 "新增" 和 "查看" 合併到 tab2
-    with tab2:
-        # (1) 先顯示 "新增紀錄" 的區塊
+    elif page == "新增/查看紀錄":
+        # (1) 顯示 "新增紀錄" 的區塊
         display_record_input(db, user_id)
         
         # (2) 加入分隔線
         st.markdown("---") 
         
         # (3) 在下方接著顯示 "交易紀錄" 的區塊
-        df_records = get_all_records(db, user_id) 
+        # (確保您使用的是 get_all_records_v2)
+        df_records = get_all_records_v2(db, user_id) 
         display_records_list(db, user_id, df_records)
 
-    # 📌 修正 #4: "帳戶管理" 移到 tab3
-    with tab3:
-        # 原本 "帳戶管理" 的內容
+    elif page == "帳戶管理":
         display_bank_account_management(db, user_id)
 
-    # 📌 修正 #5: "設定餘額" 移到 tab4
-    with tab4:
-        # 原本 "設定餘額" 的內容
+    elif page == "設定餘額":
         current_balance = get_current_balance(db, user_id)
         display_balance_management(db, user_id, current_balance)
 
