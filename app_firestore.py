@@ -260,25 +260,38 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
         for doc in docs:
             doc_data = doc.to_dict()
             doc_data['id'] = doc.id
-            # 將 Firestore Timestamp 轉換為 Python datetime (如果需要)
-            if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
-                 # 只取日期部分，並確保是 date 物件
-                 doc_data['date'] = doc_data['date'].to_pydatetime().date()
-            elif isinstance(doc_data.get('date'), str): # 處理舊格式 (字串)
-                try:
-                    doc_data['date'] = datetime.datetime.strptime(doc_data['date'], '%Y-%m-%d').date()
-                except (ValueError, TypeError):
-                    doc_data['date'] = None # 或設為預設值
-            else:
-                 # 確保 date 欄位存在且類型可處理
-                 doc_data['date'] = None
-
-            # 確保 timestamp 存在且是 datetime 物件
+            
+            # --- 1. 解析 Timestamp (建立時間) ---
+            parsed_timestamp = None # 預設值
             if 'timestamp' in doc_data and hasattr(doc_data['timestamp'], 'to_pydatetime'):
-                doc_data['timestamp'] = doc_data['timestamp'].to_pydatetime()
+                parsed_timestamp = doc_data['timestamp'].to_pydatetime()
+                doc_data['timestamp'] = parsed_timestamp # 儲存 datetime 物件
             else:
-                doc_data['timestamp'] = None # 或使用文件的 create_time/update_time
+                doc_data['timestamp'] = None # 如果無效則存 None
 
+            # --- 2. 解析 Date (交易日期) ---
+            parsed_date = None # 預設值
+            if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
+                 # 正常情況： date 是一個 Firestore Timestamp
+                 parsed_date = doc_data['date'].to_pydatetime().date()
+            elif isinstance(doc_data.get('date'), str): 
+                # 舊格式情況： date 是一個字串
+                try:
+                    parsed_date = datetime.datetime.strptime(doc_data['date'], '%Y-%m-%d').date()
+                except (ValueError, TypeError):
+                    pass # 保持 None，讓它進入備援
+
+            # --- 3. 套用備援 (Fallback) ---
+            if parsed_date:
+                # 優先使用 'date' 欄位
+                doc_data['date'] = parsed_date
+            elif parsed_timestamp:
+                # 備援：使用 'timestamp' 欄位的日期部分
+                doc_data['date'] = parsed_timestamp.date()
+            else:
+                # 最終備援：如果兩者都缺失，才設為 None
+                doc_data['date'] = None 
+                
             data.append(doc_data)
 
         # 預期從 Firestore 讀取的欄位
