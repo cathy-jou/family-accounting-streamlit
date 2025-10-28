@@ -109,16 +109,12 @@ def set_ui_styles():
 # --- 2. Firestore 連線與初始化 ---
 @st.cache_resource
 def get_user_id() -> str:
-    """
-    獲取用戶 ID。
-    直接返回硬編碼的固定 ID。
-    """
+    """獲取用戶 ID。直接返回硬編碼的固定 ID。"""
     fixed_id = "mABeWsZAaspwFcRNnODI" # <-- 直接在這裡設定您的固定 ID
     # 將固定 ID 存入 session_state 以便後續使用 (如果需要)
     if 'user_id' not in st.session_state or st.session_state['user_id'] != fixed_id:
         st.session_state['user_id'] = fixed_id
     return fixed_id
-
 
 @st.cache_resource
 def get_firestore_client():
@@ -143,14 +139,15 @@ def get_firestore_client():
         st.error("🚨 Firestore 初始化失敗！")
         st.error(f"原始錯誤訊息: {e}")
         st.warning("請確保您的環境已正確配置 Google Cloud 憑證：")
-        # st.markdown("""
-        #     * **Streamlit Cloud:** 在 `Secrets` 中設定 `firestore` 鍵，其值為您的服務帳戶 JSON 內容（包含 `project_id` 等）。
-        #     * **本地開發:**
-        #         * 設定 `GOOGLE_APPLICATION_CREDENTIALS` 環境變數指向您的服務帳戶 JSON 檔案路徑。
-        #         * 或使用 `gcloud auth application-default login` 登入。
-        #     * **確認 Project ID:** 錯誤訊息 `"Project was not passed..."` 表示客戶端無法確定專案 ID。請確保您的服務帳戶 JSON 或 gcloud 配置包含正確的專案 ID。
-        #     * **檢查 IAM 權限:** 確保服務帳戶擁有 `Cloud Firestore User` 或更高權限。
-        # """)
+        st.markdown("""
+            * **Streamlit Cloud:** 在 `Secrets` 中設定 `firestore` 鍵，其值為您的服務帳戶 JSON 內容（包含 `project_id` 等）。
+            * **本地開發:**
+                * 設定 `GOOGLE_APPLICATION_CREDENTIALS` 環境變數指向您的服務帳戶 JSON 檔案路徑。
+                * 或使用 `gcloud auth application-default login` 登入。
+            * **確認 Project ID:** 錯誤訊息 `"Project was not passed..."` 表示客戶端無法確定專案 ID。請確保您的服務帳戶 JSON 或 gcloud 配置包含正確的專案 ID。
+            * **檢查 IAM 權限:** 確保服務帳戶擁有 `Cloud Firestore User` 或更高權限。
+            * **檢查 `secrets.toml` 格式:** 確保 `private_key` 使用 `'''` 
+        """)
         st.stop() # 初始化失敗時停止應用程式
         return None
 
@@ -323,10 +320,6 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
         # 確保 timestamp 是 datetime
         record_data['timestamp'] = datetime.datetime.now()
 
-        # **** 修正 NameError: 移除不必要的 'id': fixed_id ****
-        # Firestore 的 .add() 會自動生成 ID
-        # record_data['id'] = fixed_id # <-- 移除這一行
-
         doc_ref = records_ref.add(record_data) # add 會返回 DocumentReference 和 timestamp
         st.toast("✅ 交易紀錄已新增！", icon="🎉")
 
@@ -393,7 +386,7 @@ def update_bank_accounts(db: firestore.Client, user_id: str, accounts_data: dict
         st.error(f"❌ 更新銀行帳戶失敗: {e}")
 
 # --- 5. CSV/Excel 導出函數 ---
-@st.cache_data
+# 移除 @st.cache_data 以避免 UnhashableParamError
 def convert_df_to_csv(df: pd.DataFrame):
     """
     將 DataFrame 轉換為 CSV 格式 (utf-8 編碼)，供下載使用。
@@ -461,7 +454,7 @@ def convert_df_to_csv(df: pd.DataFrame):
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
     """顯示儀表板主頁內容"""
-    st.title("雲端家庭記帳本")
+    st.title("👨‍👩‍👧‍👦 雲端家庭記帳本")
 
     # 獲取數據
     df_records = get_all_records(db, user_id)
@@ -556,7 +549,7 @@ def display_dashboard(db, user_id):
 
 def display_record_input(db, user_id):
     """顯示新增交易紀錄的表單"""
-    st.markdown("##新增交易紀錄")
+    st.markdown("## 📝 新增交易紀錄")
 
     # 將類型選擇移到 Form 外部，以便觸發類別更新
     record_type = st.radio(
@@ -852,7 +845,7 @@ def display_balance_management(db, user_id, current_balance):
 
 def display_bank_account_management(db, user_id):
     """顯示銀行帳戶管理區塊"""
-    st.markdown("## 銀行帳戶管理 (手動餘額)")
+    st.markdown("## 🏦 銀行帳戶管理 (手動餘額)")
     st.info("ℹ️ 在此處新增您的銀行、信用卡或電子支付帳戶，並手動記錄其當前餘額。")
 
     # 加載現有帳戶
@@ -914,32 +907,32 @@ def app():
 
     # 側邊欄導航
     with st.sidebar:
-        # st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True)
+        st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_column_width=True)
         st.markdown("---")
         st.markdown("## 導航選單")
         page = st.radio(
             "選擇頁面",
-            ["儀表板", "新增紀錄", "交易紀錄", "帳戶管理", "設定餘額"],
+            ["📊 儀表板", "📝 新增紀錄", "📜 交易紀錄", "🏦 帳戶管理", "⚙️ 設定餘額"],
             key='page_selector'
         )
         st.markdown("---")
         st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
 
     # --- 頁面內容渲染 ---
-    if page == "儀表板":
+    if page == "📊 儀表板":
         display_dashboard(db, user_id)
 
-    elif page == "新增紀錄":
+    elif page == "📝 新增紀錄":
         display_record_input(db, user_id)
 
-    elif page == "交易紀錄":
+    elif page == "📜 交易紀錄":
         df_records = get_all_records(db, user_id)
         display_records_list(db, user_id, df_records)
 
-    elif page == "帳戶管理":
+    elif page == "🏦 帳戶管理":
         display_bank_account_management(db, user_id)
 
-    elif page == "設定餘額":
+    elif page == "⚙️ 設定餘額":
         current_balance = get_current_balance(db, user_id)
         display_balance_management(db, user_id, current_balance)
 
