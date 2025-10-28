@@ -905,16 +905,16 @@ def app():
     db = get_firestore_client()
     user_id = get_user_id()
 
-    # 側邊欄 (保留圖片和用戶 ID)
-    with st.sidebar:
-        # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
-        st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
-        st.markdown("---")
-        st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
-        st.markdown("---")
-        # 您也可以在側邊欄放一些說明文字
-        st.markdown("### 關於此應用")
-        st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
+    # # 側邊欄 (保留圖片和用戶 ID)
+    # with st.sidebar:
+    #     # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
+    #     st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
+    #     st.markdown("---")
+    #     st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
+    #     st.markdown("---")
+    #     # 您也可以在側邊欄放一些說明文字
+    #     st.markdown("### 關於此應用")
+    #     st.write("這是一個使用 Streamlit 和 Firestore 打造的雲端記帳本。")
 
 
     # --- 頁面內容渲染 (使用 st.tabs) ---
