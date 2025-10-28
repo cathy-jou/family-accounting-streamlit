@@ -1031,8 +1031,8 @@ def app():
         st.markdown("---") 
         
         # (3) 在下方接著顯示 "交易紀錄" 的區塊
-        # (確保您使用的是 get_all_records_v2)
-        df_records = get_all_records_v2(db, user_id) 
+        # (確保您使用的是 get_all_records)
+        df_records = get_all_records(db, user_id) 
         display_records_list(db, user_id, df_records)
 
     elif page == "帳戶管理":
