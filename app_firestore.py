@@ -104,19 +104,27 @@ def set_ui_styles():
         .expense-card p {{ 
             color: #dc3545; 
             }}
-        /* --- 頁籤 (Tabs) 置中 (已修正) --- */
-        div[data-testid="stTabs"] div[role="tablist"] {{
+        /* --- 📌 (新) 頂部導航 (st.radio) 置中 --- */
+        div[data-testid="stRadio"] div[role="radiogroup"] {{
             display: flex;
             justify-content: center;
         }}
-        /* --- 📌 調整 Tabs 導航選單字體  --- */
-        div[data-testid="stTabs"] div[role="tablist"] button {{
-            font-size: 50px;  /* 調整所有頁籤的字體大小 (例如 50px) */
-            color: #6c757d;   /* 調整「未選中」頁籤的顏色 (例如 灰色) */
+
+        /* --- 📌 (新) 調整 st.radio 按鈕字體 --- */
+        /* (Streamlit 把 radio 的文字放在 p 標籤內) */
+
+        /* 調整未選中按鈕的字體和顏色 */
+        div[data-testid="stRadio"] label:not(:has(input:checked)) p {{
+            font-size: 50px !important;       /* 來自您的設定 */
+            color: #6c757d !important;        /* 來自您的設定 (未選中顏色) */
+            font-weight: normal !important;   /* 未選中時字體 normal */
         }}
-        div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] {{
-            color: #000000;   /* 調整「已選中」頁籤的顏色 (例如 黑色) */
-            font-weight: 1000; /* 讓選中的頁籤字體加粗 (可選) */
+        
+        /* 調整選中按鈕的字體和顏色 */
+        div[data-testid="stRadio"] label:has(input:checked) p {{
+            font-size: 50px !important;       /* 來自您的設定 */
+            color: #000000 !important;        /* 來自您的設定 (選中顏色) */
+            font-weight: 1000 !important;     /* 來自您的設定 (選中粗體) */
         }}
         /* --- 📌 結束 --- */
         </style>
