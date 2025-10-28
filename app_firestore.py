@@ -111,20 +111,19 @@ def set_ui_styles():
         }}
 
         /* --- 📌 (新) 調整 st.radio 按鈕字體 --- */
-        /* (Streamlit 把 radio 的文字放在 p 標籤內) */
-
+        
         /* 調整未選中按鈕的字體和顏色 */
         div[data-testid="stRadio"] label:not(:has(input:checked)) p {{
-            font-size: 30px !important;       /* 來自您的設定 */
-            color: #6c757d !important;        /* 來自您的設定 (未選中顏色) */
-            font-weight: normal !important;   /* 未選中時字體 normal */
+            font-size: 30px !important;       
+            color: #6c757d !important;        
+            font-weight: normal !important;   
         }}
         
         /* 調整選中按鈕的字體和顏色 */
         div[data-testid="stRadio"] label:has(input:checked) p {{
-            font-size: 30px !important;       /* 來自您的設定 */
-            color: #000000 !important;        /* 來自您的設定 (選中顏色) */
-            font-weight: 600 !important;     /* 來自您的設定 (選中粗體) */
+            font-size: 30px !important;       
+            color: #000000 !important;        
+            font-weight: 600 !important;     
         }}
         /* --- 📌 結束 --- */
         </style>
