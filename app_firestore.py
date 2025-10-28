@@ -250,91 +250,95 @@ def update_balance_transactional(db: firestore.Client, user_id: str, amount: flo
 @st.cache_data(ttl=60, hash_funcs={firestore.Client: id}) # 緩存交易紀錄 60 秒
 def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
     """
-    從 Firestore 獲取用戶的所有交易紀錄 (強健版本)
+    從 Firestore 獲取用戶的所有交易紀錄 (終極強健版本)
     - 優先使用 'date' 欄位
-    - 如果 'date' 缺失或無效，自動使用 'timestamp' 欄位作為備援
+    - 備援 1: 使用 'timestamp' 欄位
+    - 備援 2: 使用 '2000-01-01' 作為日期
     """
-    if db is None: # 如果 db 未初始化
+    if db is None: 
          return pd.DataFrame(columns=['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp'])
 
     records_ref = get_record_ref(db, user_id)
     try:
-        # 📌 修正：改用 timestamp 排序，這對所有紀錄 (新舊) 都更穩定
+        # 改用 timestamp 排序，這對所有紀錄 (新舊) 都更穩定
         docs = records_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).get()
-
-        data = []
-        
-        # --- (這是最關鍵的修正：3 步驟備援邏輯) ---
-        for doc in docs:
-            doc_data = doc.to_dict()
-            doc_data['id'] = doc.id
-            
-            # --- 1. 解析 Timestamp (建立時間) ---
-            parsed_timestamp = None # 預設值
-            if 'timestamp' in doc_data and hasattr(doc_data['timestamp'], 'to_pydatetime'):
-                parsed_timestamp = doc_data['timestamp'].to_pydatetime()
-                doc_data['timestamp'] = parsed_timestamp # 儲存 datetime 物件
-            else:
-                doc_data['timestamp'] = None # 如果無效則存 None
-
-            # --- 2. 解析 Date (交易日期) ---
-            parsed_date = None # 預設值
-            if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
-                 # 正常情況： date 是一個 Firestore Timestamp (如 image_502835.png)
-                 parsed_date = doc_data['date'].to_pydatetime().date()
-            elif isinstance(doc_data.get('date'), str): 
-                # 舊格式情況： date 是一個字串
-                try:
-                    parsed_date = datetime.datetime.strptime(doc_data['date'], '%Y-%m-%d').date()
-                except (ValueError, TypeError):
-                    pass # 保持 None，讓它進入備援
-
-            # --- 3. 套用備援 (Fallback) ---
-            if parsed_date:
-                # 優先使用 'date' 欄位 (轉換為 datetime 物件)
-                doc_data['date'] = datetime.datetime.combine(parsed_date, datetime.time.min)
-            elif parsed_timestamp:
-                # 備援：使用 'timestamp' (它已經是 datetime 物件)
-                doc_data['date'] = parsed_timestamp
-            else:
-                # 最終備援：如果兩者都缺失，才設為 None
-                doc_data['date'] = None 
-                
-            data.append(doc_data)
-        # --- (關鍵修正結束) ---
-
-
-        # 預期從 Firestore 讀取的欄位
-        expected_columns = ['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp']
-
-        if not data:
-            # 返回帶有正確欄位的空 DataFrame
-            return pd.DataFrame(columns=expected_columns)
-
-        df = pd.DataFrame(data)
-
-        # 確保所有預期欄位都存在，若不存在則補上空值
-        for col in expected_columns:
-            if col not in df.columns:
-                df[col] = None
-
-        # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
-        df['date'] = pd.to_datetime(df['date'], errors='coerce') 
-
-        # 轉換其他類型
-        df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
-        df['type'] = df['type'].astype(str)
-        df['category'] = df['category'].astype(str)
-        df['note'] = df['note'].astype(str)
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-
-        return df
-
     except Exception as e:
-        st.error(f"❌ 獲取交易紀錄失敗: {e}")
-        # 返回帶有正確欄位的空 DataFrame
-        return pd.DataFrame(columns=['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp'])
+        # 如果連 timestamp 欄位都沒有 (例如非常早期的資料庫)，Firestore 會拒絕排序
+        # 我們B計畫：不排序，直接獲取所有文件
+        st.warning(f"排序時發生錯誤 (可能是缺少 timestamp 欄位): {e}。嘗試不排序獲取...")
+        docs = records_ref.get() # 不排序，直接獲取
+
+
+    data = []
+    
+    # --- (這是最關鍵的修正：4 步驟備援邏輯) ---
+    for doc in docs:
+        doc_data = doc.to_dict()
+        doc_data['id'] = doc.id
+        
+        # --- 1. 解析 Timestamp (建立時間) ---
+        parsed_timestamp = None
+        if 'timestamp' in doc_data and hasattr(doc_data['timestamp'], 'to_pydatetime'):
+            parsed_timestamp = doc_data['timestamp'].to_pydatetime()
+            doc_data['timestamp'] = parsed_timestamp
+        else:
+            doc_data['timestamp'] = None
+
+        # --- 2. 解析 Date (交易日期) ---
+        parsed_date = None
+        if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
+             parsed_date = doc_data['date'].to_pydatetime().date()
+        elif isinstance(doc_data.get('date'), str): 
+            try:
+                parsed_date = datetime.datetime.strptime(doc_data['date'], '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                pass 
+
+        # --- 3. 關鍵的備援 (Fallback) 邏輯 ---
+        if parsed_date:
+            # 優先使用 'date' 欄位 (並使其時區感知)
+            doc_data['date'] = datetime.datetime.combine(parsed_date, datetime.time.min, tzinfo=datetime.timezone.utc)
+        elif parsed_timestamp:
+            # 備援 1: 使用 'timestamp' (它已經是時區感知的 datetime 物件)
+            doc_data['date'] = parsed_timestamp
+        else:
+            # 📌 備援 2 (終極): 如果兩者都缺失，給一個預設日期
+            st.warning(f"紀錄 ID: {doc_data['id']} 同時缺少 'date' 和 'timestamp'。")
+            doc_data['date'] = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
+            # 並且修改 note 欄位，讓用戶知道
+            original_note = doc_data.get('note', 'N/A')
+            doc_data['note'] = f"[系統：此紀錄日期缺失] {original_note}"
+            
+        data.append(doc_data)
+    # --- (關鍵修正結束) ---
+
+
+    # 預期從 Firestore 讀取的欄位
+    expected_columns = ['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp']
+
+    if not data:
+        return pd.DataFrame(columns=expected_columns)
+
+    df = pd.DataFrame(data)
+
+    # ... (後續的 DataFrame 處理保持不變) ...
+    for col in expected_columns:
+        if col not in df.columns:
+            df[col] = None
+    df['date'] = pd.to_datetime(df['date'], errors='coerce') 
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
+    df['type'] = df['type'].astype(str)
+    df['category'] = df['category'].astype(str)
+    df['note'] = df['note'].astype(str)
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+
+    # 📌 修正：在返回之前，確保按我們修復後的 'date' 欄位排序
+    # (因為 Firestore 的排序可能因 B 計畫而失效)
+    if 'date' in df.columns:
+        df = df.sort_values(by='date', ascending=False)
+
+    return df
 
 
 def add_record(db: firestore.Client, user_id: str, record_data: dict):
