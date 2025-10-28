@@ -115,16 +115,16 @@ def set_ui_styles():
 
         /* 調整未選中按鈕的字體和顏色 */
         div[data-testid="stRadio"] label:not(:has(input:checked)) p {{
-            font-size: 50px !important;       /* 來自您的設定 */
+            font-size: 30px !important;       /* 來自您的設定 */
             color: #6c757d !important;        /* 來自您的設定 (未選中顏色) */
             font-weight: normal !important;   /* 未選中時字體 normal */
         }}
         
         /* 調整選中按鈕的字體和顏色 */
         div[data-testid="stRadio"] label:has(input:checked) p {{
-            font-size: 50px !important;       /* 來自您的設定 */
+            font-size: 30px !important;       /* 來自您的設定 */
             color: #000000 !important;        /* 來自您的設定 (選中顏色) */
-            font-weight: 1000 !important;     /* 來自您的設定 (選中粗體) */
+            font-weight: 600 !important;     /* 來自您的設定 (選中粗體) */
         }}
         /* --- 📌 結束 --- */
         </style>
