@@ -900,7 +900,7 @@ def display_balance_management(db, user_id, current_balance):
 
 
 def display_bank_account_management(db, user_id):
-    """顯示銀行帳戶管理區塊"""
+    """顯示銀行帳戶管理區塊 (📌 修正版：允許直接更新餘額)"""
     st.markdown("## 銀行帳戶 (手動)")
     st.info("ℹ️ 在此處新增您的銀行、信用卡或電子支付帳戶，並手動記錄其當前餘額。")
 
@@ -915,27 +915,60 @@ def display_bank_account_management(db, user_id):
         st.metric("手動帳戶總餘額", f"NT$ {total_manual_balance:,.0f}")
 
         st.markdown("### 現有帳戶列表")
+        
         # 複製一份 keys 來迭代，避免在迭代過程中修改字典
         account_ids = list(bank_accounts.keys())
+        
+        # 📌 修正：調整欄位寬度以容納兩個按鈕
+        col_name_header, col_balance_header, col_actions_header = st.columns([3, 2, 2])
+        col_name_header.markdown("**帳戶名稱**")
+        col_balance_header.markdown("**目前餘額**")
+        col_actions_header.markdown("**操作**")
+
         for acc_id in account_ids:
             acc_data = bank_accounts.get(acc_id)
             if not isinstance(acc_data, dict): continue # 跳過無效數據
 
-            col_name, col_balance, col_actions = st.columns([3, 2, 1])
+            # 📌 修正：使用 st.columns 來對齊每一行
+            col_name, col_balance, col_actions = st.columns([3, 2, 2])
+            
             col_name.write(acc_data.get('name', '未命名帳戶'))
-            col_balance.metric("", f"{float(acc_data.get('balance', 0)):,.0f}") # 使用 metric 顯示餘額
 
-            # 刪除按鈕
+            # 📌 修正：將 st.metric 替換為 st.number_input
+            # 使用唯一的 key (acc_id) 來讓 Streamlit 追蹤每個輸入框的狀態
+            col_balance.number_input(
+                "餘額",
+                value=int(acc_data.get('balance', 0)),
+                step=100,
+                format="%d",
+                key=f"balance_{acc_id}", # 關鍵：唯一的 key
+                label_visibility="collapsed" # 隱藏標籤，節省空間
+            )
+
+            # 📌 修正：新增 "更新" 按鈕
+            if col_actions.button("🔄 更新", key=f"update_acc_{acc_id}"):
+                # 從 st.session_state 讀取 number_input 的當前值
+                new_balance = st.session_state[f"balance_{acc_id}"]
+                bank_accounts[acc_id]['balance'] = float(new_balance)
+                
+                # 更新 Firestore
+                update_bank_accounts(db, user_id, bank_accounts)
+                st.toast(f"✅ 已更新 '{acc_data.get('name')}' 餘額")
+                st.rerun() # 重新整理以確保狀態一致
+
+            # 📌 修正：將 "刪除" 按鈕移到 col_actions 欄位中
             if col_actions.button("🗑️ 刪除", key=f"del_acc_{acc_id}", type="secondary"):
                 if acc_id in bank_accounts: # 再次確認 key 存在
                     del bank_accounts[acc_id] # 從字典中移除
                     update_bank_accounts(db, user_id, bank_accounts)
+                    st.toast(f"🗑️ 已刪除 '{acc_data.get('name')}'")
                     st.rerun() # 更新後重跑
+        
         st.markdown("---")
     else:
         st.info("尚未新增任何銀行帳戶。")
 
-    # 新增帳戶表單
+    # (新增帳戶的表單保持不變)
     st.markdown("### 新增銀行帳戶")
     with st.form("add_bank_account_form", clear_on_submit=True):
         new_account_name = st.text_input("帳戶名稱", placeholder="例如：玉山銀行 活存、街口支付")
