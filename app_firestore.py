@@ -228,7 +228,7 @@ def update_balance_transactional(db: firestore.Client, user_id: str, amount: flo
     except Exception as e:
         st.error(f"❌ 更新餘額時發生錯誤: {e}")
 
-@st.cache_data(ttl=60) # 緩存交易紀錄 60 秒
+@st.cache_data(ttl=60, hash_funcs={firestore.Client: id}) # 緩存交易紀錄 60 秒
 def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
     """從 Firestore 獲取用戶的所有交易紀錄"""
     if db is None: # 如果 db 未初始化
@@ -350,7 +350,7 @@ def delete_record(db: firestore.Client, user_id: str, record_id: str, record_typ
         st.error(f"❌ 刪除紀錄失敗: {e}")
 
 
-@st.cache_data(ttl=300) # 緩存銀行帳戶數據 5 分鐘
+@st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存銀行帳戶數據 5 分鐘
 def load_bank_accounts(db: firestore.Client, user_id: str) -> dict:
     """從 Firestore 加載銀行帳戶列表"""
     if db is None: return {}
@@ -635,7 +635,7 @@ def display_record_input(db, user_id):
             st.cache_resource.clear() # 清除所有 @st.cache_resource (包括 DB 連線，下次自動重連)
             st.rerun()
 
-@st.cache_data(ttl=300) # 緩存類別列表 5 分鐘
+@st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存類別列表 5 分鐘
 def get_all_categories(db: firestore.Client, user_id: str) -> list:
     """從 Firestore 獲取用戶所有使用過的支出類別"""
     if db is None: return []
