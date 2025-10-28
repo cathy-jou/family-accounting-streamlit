@@ -101,7 +101,15 @@ def set_ui_styles():
         .income-card p {{ color: #28a745; }}
         .expense-card {{ background-color: #f8d7da; border-color: #f5c6cb; }}
         .expense-card h4 {{ color: #721c24; }}
-        .expense-card p {{ color: #dc3545; }}
+        .expense-card p {{ 
+            color: #dc3545; 
+            }}
+        /* --- 頁籤 (Tabs) 置中 --- */
+        /* 找到 Tabs 元件的按鈕列 (role="tablist") */
+        div[data-testid="stTabs"] div[role="tablist"] {
+            display: flex;
+            justify-content: center;
+        }
         </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -905,12 +913,10 @@ def app():
     db = get_firestore_client()
     user_id = get_user_id()
 
-    # # 側邊欄 (保留圖片和用戶 ID)
+    # # 側邊欄 
     # with st.sidebar:
     #     # 📌 您可以在這裡更換您的圖片 URL 或本地路徑
     #     st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True) 
-    #     st.markdown("---")
-    #     st.info(f"用戶 ID: `{user_id}`") # 顯示用戶 ID 方便調試
     #     st.markdown("---")
     #     # 您也可以在側邊欄放一些說明文字
     #     st.markdown("### 關於此應用")
@@ -925,24 +931,24 @@ def app():
 
     # 📌 2. 將原來的 if/elif 內容放入對應的 tab 中
     with tab1:
-        # 原本 "📊 儀表板" 的內容
+        # 原本 "儀表板" 的內容
         display_dashboard(db, user_id)
 
     with tab2:
-        # 原本 "📝 新增紀錄" 的內容
+        # 原本 "新增紀錄" 的內容
         display_record_input(db, user_id)
 
     with tab3:
-        # 原本 "📜 交易紀錄" 的內容
+        # 原本 "交易紀錄" 的內容
         df_records = get_all_records(db, user_id)
         display_records_list(db, user_id, df_records)
 
     with tab4:
-        # 原本 "🏦 帳戶管理" 的內容
+        # 原本 "帳戶管理" 的內容
         display_bank_account_management(db, user_id)
 
     with tab5:
-        # 原本 "⚙️ 設定餘額" 的內容
+        # 原本 "設定餘額" 的內容
         current_balance = get_current_balance(db, user_id)
         display_balance_management(db, user_id, current_balance)
 
