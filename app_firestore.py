@@ -800,8 +800,10 @@ def display_records_list(db, user_id, df_records):
                 record_id = row['id']
                 # 檢查 date 是否為 NaT
                 record_date_obj = row.get('date')
+                # 📌 --- 修改開始 --- 📌
                 if pd.isna(record_date_obj):
-                    record_date_str = "日期錯誤"
+                    # 讓程式在介面上直接顯示有問題的 ID
+                    record_date_str = f"日期錯誤 (ID: {record_id})" 
                 else:
                     # 嘗試格式化日期
                      try:
