@@ -246,6 +246,7 @@ def update_balance_transactional(db: firestore.Client, user_id: str, amount: flo
         st.error(f"❌ 更新餘額時發生錯誤: {e}")
 
 
+# 📌 修正：加入了 hash_funcs={firestore.Client: id} (修復 UnhashableParamError)
 @st.cache_data(ttl=60, hash_funcs={firestore.Client: id}) # 緩存交易紀錄 60 秒
 def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
     """
@@ -258,9 +259,7 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
 
     records_ref = get_record_ref(db, user_id)
     try:
-        # 使用 get() 一次性獲取所有文件快照
-        # 📌 修正：我們改用 timestamp 排序，因為所有紀錄都 *應該* 有 timestamp
-        # (如果您的舊紀錄連 timestamp 都沒有，請手動在 Firestore 補上)
+        # 📌 修正：改用 timestamp 排序，這對所有紀錄 (新舊) 都更穩定
         docs = records_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).get()
 
         data = []
@@ -281,7 +280,7 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             # --- 2. 解析 Date (交易日期) ---
             parsed_date = None # 預設值
             if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
-                 # 正常情況： date 是一個 Firestore Timestamp
+                 # 正常情況： date 是一個 Firestore Timestamp (如 image_502835.png)
                  parsed_date = doc_data['date'].to_pydatetime().date()
             elif isinstance(doc_data.get('date'), str): 
                 # 舊格式情況： date 是一個字串
@@ -320,7 +319,6 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
                 df[col] = None
 
         # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
-        # 📌 修正：在轉換 DataFrame 之前，我們已確保 'date' 是 datetime 物件或 None
         df['date'] = pd.to_datetime(df['date'], errors='coerce') 
 
         # 轉換其他類型
