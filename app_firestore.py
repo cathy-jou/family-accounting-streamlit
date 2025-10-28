@@ -907,7 +907,7 @@ def app():
 
     # 側邊欄導航
     with st.sidebar:
-        st.image("https://placehold.co/150x50/0d6efd/ffffff?text=記帳本", use_container_width=True)
+        st.image("assets/family.JPG", use_container_width=True)
         st.markdown("---")
         st.markdown("## 導航選單")
         page = st.radio(
