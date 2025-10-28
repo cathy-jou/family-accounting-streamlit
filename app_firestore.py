@@ -471,14 +471,14 @@ def convert_df_to_csv(df: pd.DataFrame):
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
     """顯示儀表板主頁內容"""
-    st.title("👨‍👩‍👧‍👦 雲端家庭記帳本")
+    st.title("宅宅家庭記帳本")
 
     # 獲取數據
     df_records = get_all_records(db, user_id)
     current_balance = get_current_balance(db, user_id)
 
     # --- 概覽卡片 ---
-    st.markdown("## 📊 財務概覽")
+    st.markdown("## 財務概覽")
     total_income = df_records[df_records['type'] == '收入']['amount'].sum() if not df_records.empty else 0
     total_expense = df_records[df_records['type'] == '支出']['amount'].sum() if not df_records.empty else 0
 
@@ -493,7 +493,7 @@ def display_dashboard(db, user_id):
     st.markdown("---", unsafe_allow_html=True) # 分隔線
 
     # --- 數據分析圖表 ---
-    st.markdown("## 📈 數據分析")
+    st.markdown("## 數據分析")
     if df_records.empty:
         st.info("ℹ️ 尚無交易紀錄可供分析。")
     else:
@@ -566,7 +566,7 @@ def display_dashboard(db, user_id):
 
 def display_record_input(db, user_id):
     """顯示新增交易紀錄的表單"""
-    st.markdown("## 📝 新增交易紀錄")
+    st.markdown("## 新增交易紀錄")
 
     # 將類型選擇移到 Form 外部，以便觸發類別更新
     record_type = st.radio(
@@ -670,7 +670,7 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 def display_records_list(db, user_id, df_records):
     """顯示交易紀錄列表，包含篩選和刪除"""
-    st.markdown("## 📜 交易紀錄")
+    st.markdown("## 交易紀錄")
 
     if df_records is None or df_records.empty:
         st.info("ℹ️ 目前沒有任何交易紀錄。")
@@ -862,7 +862,7 @@ def display_balance_management(db, user_id, current_balance):
 
 def display_bank_account_management(db, user_id):
     """顯示銀行帳戶管理區塊"""
-    st.markdown("## 🏦 銀行帳戶管理 (手動餘額)")
+    st.markdown("## 銀行帳戶 (手動)")
     st.info("ℹ️ 在此處新增您的銀行、信用卡或電子支付帳戶，並手動記錄其當前餘額。")
 
     # 加載現有帳戶
@@ -935,7 +935,7 @@ def app():
     # --- 頁面內容渲染 (使用 st.tabs) ---
     
     # 📌 1. 在主頁面頂部建立頁籤
-    tab_list = ["📊 儀表板", "📝 新增紀錄", "📜 交易紀錄", "🏦 帳戶管理", "⚙️ 設定餘額"]
+    tab_list = ["儀表板", "新增紀錄", "交易紀錄", "帳戶管理", "設定餘額"]
     tab1, tab2, tab3, tab4, tab5 = st.tabs(tab_list)
 
     # 📌 2. 將原來的 if/elif 內容放入對應的 tab 中
