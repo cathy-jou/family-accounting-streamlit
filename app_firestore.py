@@ -27,6 +27,61 @@ def safe_int(v, default=0):
         except Exception:
             return default
 
+
+def safe_date(v):
+    """Return a datetime.date for various input types (datetime, pandas Timestamp, string, None/NaT)."""
+    import datetime
+    try:
+        # Handle pandas Timestamp / NaT without importing pandas at top-level to avoid circulars
+        try:
+            import pandas as pd
+            if isinstance(v, pd.Timestamp):
+                if pd.isna(v):
+                    return datetime.date.today()
+                return v.to_pydatetime().date()
+            # pd.isna on non-pandas types is safe to call
+            if pd.isna(v):
+                return datetime.date.today()
+        except Exception:
+            pass
+
+        if v is None:
+            return datetime.date.today()
+        # numpy datetime64
+        try:
+            import numpy as np
+            if isinstance(v, (np.datetime64,)):
+                # convert to python datetime
+                ts = v.astype('M8[ms]').astype('O')
+                if ts is None:
+                    return datetime.date.today()
+                return ts.date() if hasattr(ts, 'date') else datetime.date.today()
+        except Exception:
+            pass
+
+        # Python datetime / date
+        if hasattr(v, 'date') and not isinstance(v, datetime.date):
+            try:
+                return v.date()
+            except Exception:
+                pass
+        if isinstance(v, datetime.datetime):
+            return v.date()
+        if isinstance(v, datetime.date):
+            return v
+
+        # String fallback (assumes YYYY-MM-DD first 10 chars)
+        s = str(v).strip()
+        if not s:
+            return datetime.date.today()
+        # Try common ISO format
+        try:
+            return datetime.date.fromisoformat(s[:10])
+        except Exception:
+            return datetime.date.today()
+    except Exception:
+        return datetime.date.today()
+
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa"
 RECORD_COLLECTION_NAME = "records"       # 交易紀錄 Collection 名稱
@@ -880,7 +935,7 @@ def display_records_list(db, user_id, df_records):
                 st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
                 edit_cols_1 = st.columns(3)
                 with edit_cols_1[0]:
-                    default_date = (getattr(record_date_obj, 'date', lambda: None)() or (record_date_obj if isinstance(record_date_obj, datetime.date) else datetime.date.today()))
+                    default_date = safe_date(record_date_obj)
                     new_date = st.date_input("日期", value=default_date, key=f"edit_date_{record_id}")
                 with edit_cols_1[1]:
                     new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
