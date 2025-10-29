@@ -381,27 +381,81 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
         st.error(f"❌ 新增紀錄失敗: {e}")
         st.error(f"紀錄數據: {record_data}") # 打印出問題數據幫助除錯
 
-def delete_record(db: firestore.Client, user_id: str, record_id: str, record_type: str, record_amount: float):
-    """從 Firestore 刪除一筆交易紀錄並回滾餘額"""
+def update_record(db: firestore.Client, user_id: str, record_id: str, new_data: dict, old_data: dict):
+    """
+    更新 Firestore 中的一筆交易紀錄，並重新計算餘額。
+    """
     if db is None: return
+    
+    # 1. 準備要寫入的新資料 (轉換 date 為 datetime)
     record_doc_ref = get_record_ref(db, user_id).document(record_id)
+    
+    write_data = new_data.copy()
+    record_date = write_data.get('date')
+    if isinstance(record_date, datetime.date):
+        # 轉換為 UTC datetime (與 add_record 邏輯保持一致)
+        # 📌 確保您已在檔案頂部 import datetime
+        write_data['date'] = datetime.datetime.combine(record_date, datetime.time.min, tzinfo=datetime.timezone.utc)
+    
+    # 我們只更新這幾個欄位，保留原始的 timestamp
     try:
-        record_doc_ref.delete()
+        record_doc_ref.update({
+            'date': write_data['date'],
+            'type': write_data['type'],
+            'category': write_data['category'],
+            'amount': write_data['amount'],
+            'note': write_data['note']
+        })
         
-        # 📌 --- 修正：在這裡手動清除快取 --- 📌
-        # 確保 get_all_records 函式的快取被清除
-        get_all_records.clear() 
+        # 2. 計算餘額變動
+        # 舊的餘額影響
+        old_amount = old_data.get('amount', 0)
+        old_balance_effect = old_amount if old_data.get('type') == '收入' else -old_amount
         
-        st.toast("🗑️ 交易紀錄已刪除！", icon="✅")
-
-        # 回滾餘額
-        operation = 'subtract' if record_type == '收入' else 'add' # 注意操作相反
-        update_balance_transactional(db, user_id, float(record_amount), operation)
-
-        st.rerun() # 強制刷新頁面
-
+        # 新的餘額影響
+        new_amount = new_data.get('amount', 0)
+        new_balance_effect = new_amount if new_data.get('type') == '收入' else -new_amount
+        
+        # 淨變動
+        net_balance_change = new_balance_effect - old_balance_effect
+        
+        # 3. 套用餘額變動
+        if net_balance_change > 0:
+            update_balance_transactional(db, user_id, net_balance_change, 'add')
+        elif net_balance_change < 0:
+            update_balance_transactional(db, user_id, abs(net_balance_change), 'subtract')
+        # else: 餘額不變，無需操作
+            
+        st.toast("✅ 紀錄已更新！", icon="🎉")
+        
+        # 4. 清除快取 (確保您使用的是 v2 函式)
+        get_all_records_v2.clear() 
+        get_current_balance.clear()
+        
     except Exception as e:
-        st.error(f"❌ 刪除紀錄失敗: {e}")
+        st.error(f"❌ 更新紀錄失敗: {e}")
+
+# def delete_record(db: firestore.Client, user_id: str, record_id: str, record_type: str, record_amount: float):
+#     """從 Firestore 刪除一筆交易紀錄並回滾餘額"""
+#     if db is None: return
+#     record_doc_ref = get_record_ref(db, user_id).document(record_id)
+#     try:
+#         record_doc_ref.delete()
+        
+#         # 📌 --- 修正：在這裡手動清除快取 --- 📌
+#         # 確保 get_all_records 函式的快取被清除
+#         get_all_records.clear() 
+        
+#         st.toast("🗑️ 交易紀錄已刪除！", icon="✅")
+
+#         # 回滾餘額
+#         operation = 'subtract' if record_type == '收入' else 'add' # 注意操作相反
+#         update_balance_transactional(db, user_id, float(record_amount), operation)
+
+#         st.rerun() # 強制刷新頁面
+
+#     except Exception as e:
+#         st.error(f"❌ 刪除紀錄失敗: {e}")
 
 
 @st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存銀行帳戶數據 5 分鐘
@@ -706,92 +760,64 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表，包含篩選和刪除"""
-    st.markdown("## 交易紀錄")
+    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入編輯功能)"""
+    st.markdown("## 📜 交易紀錄")
 
     if df_records is None or df_records.empty:
         st.info("ℹ️ 目前沒有任何交易紀錄。")
         return
 
-    # --- 篩選器 ---
+    # --- 篩選器 (保持不變) ---
     st.markdown("### 篩選紀錄")
     col1, col2, col3 = st.columns([1, 1, 2])
-
-    # 1. 月份篩選 (使用最新資料中的月份)
-    # 確保 'date' 欄位存在且為 datetime 類型
+    
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
          st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
          all_months = []
          selected_month = None
     else:
-        # 使用 .dt accessor 前確保非空且無 NaT
         date_series = df_records['date'].dropna()
         if not date_series.empty:
-            # 確保 'month_year_period' 在每次篩選前重新計算
-            # 使用 .copy() 避免 SettingWithCopyWarning
             df_copy = df_records.copy()
             df_copy['month_year_period'] = df_copy['date'].dt.to_period('M')
             all_months = sorted(df_copy['month_year_period'].dropna().unique().astype(str), reverse=True)
         else:
             all_months = []
-
         if not all_months:
              selected_month = None
              st.info("尚無紀錄可供篩選月份。")
         else:
-             # 預設選中最新月份 (索引 0)
-             selected_month = col1.selectbox(
-                 "選擇月份",
-                 options=all_months,
-                 index=0, # 預設最新月份
-                 key='month_selector'
-             )
-
-    # 2. 類型篩選
-    type_filter = col2.selectbox(
-        "選擇類型",
-        options=['全部', '收入', '支出'],
-        key='type_filter'
-    )
-
-    # 根據選定月份和類型篩選 DataFrame
+             selected_month = col1.selectbox("選擇月份", options=all_months, index=0, key='month_selector')
+    
+    type_filter = col2.selectbox("選擇類型", options=['全部', '收入', '支出'], key='type_filter')
+    
     df_filtered = df_records.copy()
     if selected_month:
         try:
-             # 將選中的月份字串轉回 Period 物件進行比較
              selected_month_period = pd.Period(selected_month, freq='M')
-             # 確保 'month_year_period' 欄位存在
              if 'month_year_period' in df_filtered.columns:
-                 # 使用 .loc 避免 SettingWithCopyWarning
                  df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
              else:
-                 # 如果不存在，可能是因為上面重新計算時出錯，先嘗試重新計算
                  if 'date' in df_filtered.columns and pd.api.types.is_datetime64_any_dtype(df_filtered['date']):
                      date_series_filtered = df_filtered['date'].dropna()
                      if not date_series_filtered.empty:
                          df_filtered['month_year_period'] = df_filtered['date'].dt.to_period('M')
                          df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
-                     else:
-                         st.warning("無法按月份篩選，月份欄位處理出錯。")
-                 else:
-                     st.warning("無法按月份篩選，月份欄位處理出錯。")
-
         except (ValueError, TypeError):
              st.error("月份格式錯誤，無法篩選。")
 
     if type_filter != '全部':
-        # 使用 .loc 避免 SettingWithCopyWarning
         df_filtered = df_filtered.loc[df_filtered['type'] == type_filter].copy()
 
-    # 確保篩選後按日期倒序
-    df_filtered = df_filtered.sort_values(by='date', ascending=False)
-
-
-    # --- 導出按鈕 ---
+    # 📌 修正：如果沒有在 'editing' 模式下，才進行排序
+    # (避免在編輯時，表單跳到別的位置)
+    if st.session_state.editing_record_id is None:
+        df_filtered = df_filtered.sort_values(by='date', ascending=False)
+    
+    # --- 導出按鈕 (保持不變) ---
     if not df_filtered.empty:
-        csv = convert_df_to_csv(df_filtered) # 使用篩選後的數據
+        csv = convert_df_to_csv(df_filtered) 
         file_name_month = selected_month if selected_month else "all"
-        # 檢查 csv 是否為空字節串
         if csv:
             col3.download_button(
                 label="📥 下載篩選結果 (CSV)",
@@ -800,74 +826,298 @@ def display_records_list(db, user_id, df_records):
                 mime='text/csv',
                 key='download_csv_button'
             )
-        else:
-            col3.warning("CSV 轉換失敗，無法下載。")
     else:
         col3.info("沒有符合篩選條件的紀錄可供下載。")
-
-
-    st.markdown("---") # 分隔線
+    st.markdown("---")
 
     # --- 紀錄列表標題 ---
     st.markdown("### 紀錄明細")
-    header_cols = st.columns([1.2, 1, 1, 0.7, 9, 1]) # 增加備註寬度
+    header_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) # 📌 修正：調整寬度以容納編輯按鈕
     headers = ['日期', '類別', '金額', '類型', '備註', '操作']
     for col, header in zip(header_cols, headers):
         col.markdown(f"**{header}**")
 
-    # --- 顯示篩選後的紀錄 ---
+    # --- 顯示篩選後的紀錄 (📌 核心修改) ---
     if df_filtered.empty:
         st.info("ℹ️ 沒有符合篩選條件的交易紀錄。")
     else:
         for index, row in df_filtered.iterrows():
             try:
                 record_id = row['id']
-                # 檢查 date 是否為 NaT
-                record_date_obj = row.get('date')
-                # 📌 --- 修改開始 --- 📌
-                if pd.isna(record_date_obj):
-                    # 讓程式在介面上直接顯示有問題的 ID
-                    record_date_str = f"日期錯誤 (ID: {record_id})" 
-                else:
-                    # 嘗試格式化日期
-                     try:
-                          record_date_str = record_date_obj.strftime('%Y-%m-%d')
-                     except AttributeError: # 如果不是 datetime 物件
-                          record_date_str = str(record_date_obj).split(' ')[0] # 嘗試取日期部分
-                     except ValueError: # 無效日期
-                          record_date_str = "日期格式無效"
-
+                record_date_obj = row.get('date') # 這是 datetime 物件
                 record_type = row.get('type', 'N/A')
                 record_category = row.get('category', 'N/A')
-                record_amount = row.get('amount', 0)
+                record_amount = float(row.get('amount', 0)) # 確保是 float
                 record_note = row.get('note', 'N/A')
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
                 continue
 
-            color = "#28a745" if record_type == '收入' else "#dc3545"
-            amount_sign = "+" if record_type == '收入' else "-"
+            # 📌 關鍵：檢查這筆紀錄是否正在被編輯
+            if record_id == st.session_state.get('editing_record_id'):
+                
+                # --- 模式 A：顯示「編輯表單」 ---
+                with st.form(key=f"edit_form_{record_id}"):
+                    st.markdown(f"**正在編輯：** `{record_note[:20]}...`")
+                    
+                    edit_cols_1 = st.columns(3)
+                    with edit_cols_1[0]:
+                        # 確保 date_input 收到的是 date 物件
+                        new_date = st.date_input("日期", value=record_date_obj.date() if record_date_obj else datetime.date.today(), key=f"edit_date_{record_id}")
+                    with edit_cols_1[1]:
+                        new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
+                    with edit_cols_1[2]:
+                        new_amount = st.number_input("金額", min_value=1, value=int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
+                    
+                    edit_cols_2 = st.columns(2)
+                    with edit_cols_2[0]:
+                        # 動態獲取類別選項
+                        category_options = CATEGORIES.get(new_type, [])
+                        if new_type == '支出':
+                            all_db_categories = get_all_categories(db, user_id) # 重新獲取
+                            unique_categories = sorted(list(set(category_options + all_db_categories)))
+                            category_options = unique_categories
+                        
+                        # 找到當前類別的索引
+                        try:
+                            cat_index = category_options.index(record_category)
+                        except ValueError:
+                            category_options.append(record_category) # 如果類別不在列表中，補上
+                            cat_index = category_options.index(record_category)
+                            
+                        new_category = st.selectbox("類別", options=category_options, index=cat_index, key=f"edit_cat_{record_id}")
+                    
+                    with edit_cols_2[1]:
+                        new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
 
-            with st.container(border=True): # 使用 container 包裝每一行
-                # 使用與標題相同的比例
-                row_cols = st.columns([1.2, 1, 1, 0.7, 9, 1])
-                row_cols[0].write(record_date_str)
-                row_cols[1].write(record_category)
-                row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
-                row_cols[3].write(record_type)
-                row_cols[4].write(record_note)
+                    # 提交按鈕
+                    form_cols = st.columns([1, 1, 3])
+                    with form_cols[0]:
+                        if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
+                            
+                            new_data = {
+                                'date': new_date,
+                                'type': new_type,
+                                'category': new_category,
+                                'amount': float(new_amount),
+                                'note': new_note.strip() or "無備註",
+                            }
+                            old_data = {
+                                'type': record_type,
+                                'amount': record_amount
+                            }
+                            
+                            update_record(db, user_id, record_id, new_data, old_data)
+                            st.session_state.editing_record_id = None # 關閉編輯模式
+                            st.rerun()
+                            
+                    with form_cols[1]:
+                        if st.form_submit_button("❌ 取消", type="secondary", use_container_width=True):
+                            st.session_state.editing_record_id = None # 關閉編輯模式
+                            st.rerun()
+            
+            else:
+                
+                # --- 模式 B：顯示「一般紀錄列」 (您原本的邏輯) ---
+                
+                # 格式化日期
+                if pd.isna(record_date_obj):
+                    record_date_str = "日期錯誤"
+                else:
+                    try:
+                         record_date_str = record_date_obj.strftime('%Y-%m-%d')
+                    except Exception:
+                         record_date_str = str(record_date_obj).split(' ')[0]
 
-                # 刪除按鈕
-                delete_button_key = f"delete_{record_id}"
-                if row_cols[5].button("🗑️", key=delete_button_key, type="secondary", help="刪除此紀錄"):
-                    delete_record(
-                        db=db,
-                        user_id=user_id,
-                        record_id=record_id,
-                        record_type=record_type,
-                        record_amount=record_amount
-                    )
-            # st.markdown("---", unsafe_allow_html=True) # 移除行間分隔線，改用 container
+                color = "#28a745" if record_type == '收入' else "#dc3545"
+                amount_sign = "+" if record_type == '收入' else "-"
+
+                with st.container(border=True):
+                    row_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) # 📌 修正：操作欄位寬度為 2
+                    row_cols[0].write(record_date_str)
+                    row_cols[1].write(record_category)
+                    row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
+                    row_cols[3].write(record_type)
+                    row_cols[4].write(record_note)
+
+                    # 📌 修正：新增 ✏️ 編輯按鈕
+                    if row_cols[5].button("✏️", key=f"edit_{record_id}", help="編輯此紀錄"):
+                        st.session_state.editing_record_id = record_id
+                        st.rerun()
+
+                    # 刪除按鈕
+                    if row_cols[5].button("🗑️", key=f"delete_{record_id}", type="secondary", help="刪除此紀錄"):
+                        delete_record(
+                            db=db,
+                            user_id=user_id,
+                            record_id=record_id,
+                            record_type=record_type,
+                            record_amount=record_amount
+                        )
+
+# def display_records_list(db, user_id, df_records):
+#     """顯示交易紀錄列表，包含篩選和刪除"""
+#     st.markdown("## 交易紀錄")
+
+#     if df_records is None or df_records.empty:
+#         st.info("ℹ️ 目前沒有任何交易紀錄。")
+#         return
+
+#     # --- 篩選器 ---
+#     st.markdown("### 篩選紀錄")
+#     col1, col2, col3 = st.columns([1, 1, 2])
+
+#     # 1. 月份篩選 (使用最新資料中的月份)
+#     # 確保 'date' 欄位存在且為 datetime 類型
+#     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
+#          st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
+#          all_months = []
+#          selected_month = None
+#     else:
+#         # 使用 .dt accessor 前確保非空且無 NaT
+#         date_series = df_records['date'].dropna()
+#         if not date_series.empty:
+#             # 確保 'month_year_period' 在每次篩選前重新計算
+#             # 使用 .copy() 避免 SettingWithCopyWarning
+#             df_copy = df_records.copy()
+#             df_copy['month_year_period'] = df_copy['date'].dt.to_period('M')
+#             all_months = sorted(df_copy['month_year_period'].dropna().unique().astype(str), reverse=True)
+#         else:
+#             all_months = []
+
+#         if not all_months:
+#              selected_month = None
+#              st.info("尚無紀錄可供篩選月份。")
+#         else:
+#              # 預設選中最新月份 (索引 0)
+#              selected_month = col1.selectbox(
+#                  "選擇月份",
+#                  options=all_months,
+#                  index=0, # 預設最新月份
+#                  key='month_selector'
+#              )
+
+#     # 2. 類型篩選
+#     type_filter = col2.selectbox(
+#         "選擇類型",
+#         options=['全部', '收入', '支出'],
+#         key='type_filter'
+#     )
+
+#     # 根據選定月份和類型篩選 DataFrame
+#     df_filtered = df_records.copy()
+#     if selected_month:
+#         try:
+#              # 將選中的月份字串轉回 Period 物件進行比較
+#              selected_month_period = pd.Period(selected_month, freq='M')
+#              # 確保 'month_year_period' 欄位存在
+#              if 'month_year_period' in df_filtered.columns:
+#                  # 使用 .loc 避免 SettingWithCopyWarning
+#                  df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
+#              else:
+#                  # 如果不存在，可能是因為上面重新計算時出錯，先嘗試重新計算
+#                  if 'date' in df_filtered.columns and pd.api.types.is_datetime64_any_dtype(df_filtered['date']):
+#                      date_series_filtered = df_filtered['date'].dropna()
+#                      if not date_series_filtered.empty:
+#                          df_filtered['month_year_period'] = df_filtered['date'].dt.to_period('M')
+#                          df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
+#                      else:
+#                          st.warning("無法按月份篩選，月份欄位處理出錯。")
+#                  else:
+#                      st.warning("無法按月份篩選，月份欄位處理出錯。")
+
+#         except (ValueError, TypeError):
+#              st.error("月份格式錯誤，無法篩選。")
+
+#     if type_filter != '全部':
+#         # 使用 .loc 避免 SettingWithCopyWarning
+#         df_filtered = df_filtered.loc[df_filtered['type'] == type_filter].copy()
+
+#     # 確保篩選後按日期倒序
+#     df_filtered = df_filtered.sort_values(by='date', ascending=False)
+
+
+#     # --- 導出按鈕 ---
+#     if not df_filtered.empty:
+#         csv = convert_df_to_csv(df_filtered) # 使用篩選後的數據
+#         file_name_month = selected_month if selected_month else "all"
+#         # 檢查 csv 是否為空字節串
+#         if csv:
+#             col3.download_button(
+#                 label="📥 下載篩選結果 (CSV)",
+#                 data=csv,
+#                 file_name=f'交易紀錄_{file_name_month}.csv',
+#                 mime='text/csv',
+#                 key='download_csv_button'
+#             )
+#         else:
+#             col3.warning("CSV 轉換失敗，無法下載。")
+#     else:
+#         col3.info("沒有符合篩選條件的紀錄可供下載。")
+
+
+#     st.markdown("---") # 分隔線
+
+#     # --- 紀錄列表標題 ---
+#     st.markdown("### 紀錄明細")
+#     header_cols = st.columns([1.2, 1, 1, 0.7, 9, 1]) # 增加備註寬度
+#     headers = ['日期', '類別', '金額', '類型', '備註', '操作']
+#     for col, header in zip(header_cols, headers):
+#         col.markdown(f"**{header}**")
+
+#     # --- 顯示篩選後的紀錄 ---
+#     if df_filtered.empty:
+#         st.info("ℹ️ 沒有符合篩選條件的交易紀錄。")
+#     else:
+#         for index, row in df_filtered.iterrows():
+#             try:
+#                 record_id = row['id']
+#                 # 檢查 date 是否為 NaT
+#                 record_date_obj = row.get('date')
+#                 # 📌 --- 修改開始 --- 📌
+#                 if pd.isna(record_date_obj):
+#                     # 讓程式在介面上直接顯示有問題的 ID
+#                     record_date_str = f"日期錯誤 (ID: {record_id})" 
+#                 else:
+#                     # 嘗試格式化日期
+#                      try:
+#                           record_date_str = record_date_obj.strftime('%Y-%m-%d')
+#                      except AttributeError: # 如果不是 datetime 物件
+#                           record_date_str = str(record_date_obj).split(' ')[0] # 嘗試取日期部分
+#                      except ValueError: # 無效日期
+#                           record_date_str = "日期格式無效"
+
+#                 record_type = row.get('type', 'N/A')
+#                 record_category = row.get('category', 'N/A')
+#                 record_amount = row.get('amount', 0)
+#                 record_note = row.get('note', 'N/A')
+#             except KeyError as e:
+#                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
+#                 continue
+
+#             color = "#28a745" if record_type == '收入' else "#dc3545"
+#             amount_sign = "+" if record_type == '收入' else "-"
+
+#             with st.container(border=True): # 使用 container 包裝每一行
+#                 # 使用與標題相同的比例
+#                 row_cols = st.columns([1.2, 1, 1, 0.7, 9, 1])
+#                 row_cols[0].write(record_date_str)
+#                 row_cols[1].write(record_category)
+#                 row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
+#                 row_cols[3].write(record_type)
+#                 row_cols[4].write(record_note)
+
+#                 # 刪除按鈕
+#                 delete_button_key = f"delete_{record_id}"
+#                 if row_cols[5].button("🗑️", key=delete_button_key, type="secondary", help="刪除此紀錄"):
+#                     delete_record(
+#                         db=db,
+#                         user_id=user_id,
+#                         record_id=record_id,
+#                         record_type=record_type,
+#                         record_amount=record_amount
+#                     )
+#             # st.markdown("---", unsafe_allow_html=True) # 移除行間分隔線，改用 container
 
 
 def display_balance_management(db, user_id, current_balance):
@@ -989,6 +1239,10 @@ def display_bank_account_management(db, user_id):
 def app():
     """主應用程式入口點"""
     set_ui_styles()
+
+    # 初始化 session_state，用於追蹤正在編輯的紀錄 ID
+    if 'editing_record_id' not in st.session_state:
+        st.session_state.editing_record_id = None
 
     # 初始化 Firestore 和用戶 ID
     db = get_firestore_client()
