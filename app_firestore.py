@@ -855,7 +855,7 @@ def display_records_list(db, user_id, df_records):
             if record_id == st.session_state.get('editing_record_id'):
                 
                 # --- 模式 A：顯示「編輯表單」 ---
-                with st.form(key=f"edit_form_{record_id}"):
+                with st.form(key=f"edit_form_{record_id}"): # 📌 表單開始
                     st.markdown(f"**正在編輯：** `{record_note[:20]}...`")
                     
                     edit_cols_1 = st.columns(3)
@@ -868,22 +868,28 @@ def display_records_list(db, user_id, df_records):
                     
                     edit_cols_2 = st.columns(2)
                     with edit_cols_2[0]:
+                        # 動態獲取類別選項
                         category_options = CATEGORIES.get(new_type, [])
                         if new_type == '支出':
                             all_db_categories = get_all_categories(db, user_id) 
                             unique_categories = sorted(list(set(category_options + all_db_categories)))
                             category_options = unique_categories
+                        
+                        # 📌 修正 ValueError：使用 try/except
                         try:
                             cat_index = category_options.index(record_category)
                         except ValueError:
+                            # 如果舊類別不在新列表中 (例如從支出切到收入)
+                            # 則將舊類別附加到選項中，並選中它
                             category_options.append(record_category) 
                             cat_index = category_options.index(record_category)
+                            
                         new_category = st.selectbox("類別", options=category_options, index=cat_index, key=f"edit_cat_{record_id}")
                     
                     with edit_cols_2[1]:
                         new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
 
-                    # 📌 --- 修正：提交按鈕必須在 st.form 區塊 *內部* --- 📌
+                    # 📌 修正縮排：提交按鈕必須在 st.form 區塊 *內部*
                     form_cols = st.columns([1, 1, 3])
                     with form_cols[0]:
                         if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
@@ -908,8 +914,8 @@ def display_records_list(db, user_id, df_records):
                         if st.form_submit_button("❌ 取消", type="secondary", use_container_width=True):
                             st.session_state.editing_record_id = None 
                             st.rerun()
-                # 📌 --- st.form 區塊在這裡結束 --- 📌
-            
+                # 📌 表單在這裡結束
+
             else:
                 
                 # --- 模式 B：顯示「一般紀錄列」 (您原本的邏輯) ---
