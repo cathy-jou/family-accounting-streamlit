@@ -381,6 +381,28 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
         st.error(f"❌ 新增紀錄失敗: {e}")
         st.error(f"紀錄數據: {record_data}") # 打印出問題數據幫助除錯
 
+def delete_record(db: firestore.Client, user_id: str, record_id: str, record_type: str, record_amount: float):
+    """從 Firestore 刪除一筆交易紀錄並回滾餘額"""
+    if db is None: return
+    record_doc_ref = get_record_ref(db, user_id).document(record_id)
+    try:
+        record_doc_ref.delete()
+        
+        # 📌 --- 修正：在這裡手動清除快取 --- 📌
+        # 確保 get_all_records 函式的快取被清除
+        get_all_records.clear() 
+        
+        st.toast("🗑️ 交易紀錄已刪除！", icon="✅")
+
+        # 回滾餘額
+        operation = 'subtract' if record_type == '收入' else 'add' # 注意操作相反
+        update_balance_transactional(db, user_id, float(record_amount), operation)
+
+        st.rerun() # 強制刷新頁面
+
+    except Exception as e:
+        st.error(f"❌ 刪除紀錄失敗: {e}")
+
 def update_record(db: firestore.Client, user_id: str, record_id: str, new_data: dict, old_data: dict):
     """
     更新 Firestore 中的一筆交易紀錄，並重新計算餘額。
@@ -434,28 +456,6 @@ def update_record(db: firestore.Client, user_id: str, record_id: str, new_data: 
         
     except Exception as e:
         st.error(f"❌ 更新紀錄失敗: {e}")
-
-# def delete_record(db: firestore.Client, user_id: str, record_id: str, record_type: str, record_amount: float):
-#     """從 Firestore 刪除一筆交易紀錄並回滾餘額"""
-#     if db is None: return
-#     record_doc_ref = get_record_ref(db, user_id).document(record_id)
-#     try:
-#         record_doc_ref.delete()
-        
-#         # 📌 --- 修正：在這裡手動清除快取 --- 📌
-#         # 確保 get_all_records 函式的快取被清除
-#         get_all_records.clear() 
-        
-#         st.toast("🗑️ 交易紀錄已刪除！", icon="✅")
-
-#         # 回滾餘額
-#         operation = 'subtract' if record_type == '收入' else 'add' # 注意操作相反
-#         update_balance_transactional(db, user_id, float(record_amount), operation)
-
-#         st.rerun() # 強制刷新頁面
-
-#     except Exception as e:
-#         st.error(f"❌ 刪除紀錄失敗: {e}")
 
 
 @st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存銀行帳戶數據 5 分鐘
@@ -922,7 +922,8 @@ def display_records_list(db, user_id, df_records):
                 
                 # 格式化日期
                 if pd.isna(record_date_obj):
-                    record_date_str = "日期錯誤"
+                    record_id_str = row.get('id', 'N/A') # 確保有 ID
+                    record_date_str = f"日期錯誤 (ID: {record_id_str})"
                 else:
                     try:
                          record_date_str = record_date_obj.strftime('%Y-%m-%d')
@@ -933,7 +934,8 @@ def display_records_list(db, user_id, df_records):
                 amount_sign = "+" if record_type == '收入' else "-"
 
                 with st.container(border=True):
-                    row_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) # 📌 修正：操作欄位寬度為 2
+                    # 📌 修正：這裡的 st.columns 必須與標題的寬度匹配
+                    row_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
                     row_cols[0].write(record_date_str)
                     row_cols[1].write(record_category)
                     row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
