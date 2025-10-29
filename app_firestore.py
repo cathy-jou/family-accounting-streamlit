@@ -854,67 +854,151 @@ def display_records_list(db, user_id, df_records):
             # 📌 關鍵：檢查這筆紀錄是否正在被編輯
             if record_id == st.session_state.get('editing_record_id'):
                 
-                # --- 模式 A：顯示「編輯表單」 ---
-                with st.form(key=f"edit_form_{record_id}"): # 📌 表單開始
-                    st.markdown(f"**正在編輯：** `{record_note[:20]}...`")
+                # # --- 模式 A：顯示「編輯表單」 ---
+                # with st.form(key=f"edit_form_{record_id}"): # 📌 表單開始
+                #     st.markdown(f"**正在編輯：** `{record_note[:20]}...`")
                     
+                #     edit_cols_1 = st.columns(3)
+                #     with edit_cols_1[0]:
+                #         new_date = st.date_input("日期", value=record_date_obj.date() if record_date_obj else datetime.date.today(), key=f"edit_date_{record_id}")
+                #     with edit_cols_1[1]:
+                #         new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
+                #     with edit_cols_1[2]:
+                #         new_amount = st.number_input("金額", min_value=1, value=int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
+                    
+                #     edit_cols_2 = st.columns(2)
+                #     with edit_cols_2[0]:
+                #         # 動態獲取類別選項
+                #         category_options = CATEGORIES.get(new_type, [])
+                #         if new_type == '支出':
+                #             all_db_categories = get_all_categories(db, user_id) 
+                #             unique_categories = sorted(list(set(category_options + all_db_categories)))
+                #             category_options = unique_categories
+                        
+                #         # 📌 修正 ValueError：使用 try/except
+                #         try:
+                #             cat_index = category_options.index(record_category)
+                #         except ValueError:
+                #             # 如果舊類別不在新列表中 (例如從支出切到收入)
+                #             # 則將舊類別附加到選項中，並選中它
+                #             category_options.append(record_category) 
+                #             cat_index = category_options.index(record_category)
+                            
+                #         new_category = st.selectbox("類別", options=category_options, index=cat_index, key=f"edit_cat_{record_id}")
+                    
+                #     with edit_cols_2[1]:
+                #         new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
+
+
+                #     form_cols = st.columns([1, 1, 3])
+                #     with form_cols[0]:
+                #         if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
+                            
+                #             new_data = {
+                #                 'date': new_date,
+                #                 'type': new_type,
+                #                 'category': new_category,
+                #                 'amount': float(new_amount),
+                #                 'note': new_note.strip() or "無備註",
+                #             }
+                #             old_data = {
+                #                 'type': record_type,
+                #                 'amount': record_amount
+                #             }
+                            
+                #             update_record(db, user_id, record_id, new_data, old_data)
+                #             st.session_state.editing_record_id = None 
+                #             st.rerun()
+                            
+                #     with form_cols[1]:
+                #         if st.form_submit_button("❌ 取消", type="secondary", use_container_width=True):
+                #             st.session_state.editing_record_id = None 
+                #             st.rerun()
+                # # 📌 表單在這裡結束
+                
+                with st.form(key=f"edit_form_{record_id}", clear_on_submit=False):
+                    st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
+
                     edit_cols_1 = st.columns(3)
                     with edit_cols_1[0]:
-                        new_date = st.date_input("日期", value=record_date_obj.date() if record_date_obj else datetime.date.today(), key=f"edit_date_{record_id}")
+                        # 若原始日期轉換失敗，給今天，避免 None 造成表單崩潰
+                        default_date = record_date_obj if isinstance(record_date_obj, datetime.date) else datetime.date.today()
+                        new_date = st.date_input("日期", value=default_date, key=f"edit_date_{record_id}")
+
                     with edit_cols_1[1]:
-                        new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
+                        new_type = st.radio(
+                            "類型", ['支出', '收入'],
+                            index=0 if record_type == '支出' else 1,
+                            key=f"edit_type_{record_id}",
+                            horizontal=True
+                        )
+
                     with edit_cols_1[2]:
-                        new_amount = st.number_input("金額", min_value=1, value=int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
-                    
+                        # 金額一律用整數顯示與輸入，避免小數造成後續 int/float 轉換錯
+                        new_amount = st.number_input(
+                            "金額", min_value=0, value=int(record_amount) if record_amount is not None else 0,
+                            step=1, format="%d", key=f"edit_amount_{record_id}"
+                        )
+
                     edit_cols_2 = st.columns(2)
                     with edit_cols_2[0]:
-                        # 動態獲取類別選項
+                        # 動態類別
                         category_options = CATEGORIES.get(new_type, [])
                         if new_type == '支出':
-                            all_db_categories = get_all_categories(db, user_id) 
+                            all_db_categories = get_all_categories(db, user_id)
                             unique_categories = sorted(list(set(category_options + all_db_categories)))
                             category_options = unique_categories
-                        
-                        # 📌 修正 ValueError：使用 try/except
+
+                        # 舊類別可能不在新的選單中（切換收入/支出時常見）
                         try:
                             cat_index = category_options.index(record_category)
                         except ValueError:
-                            # 如果舊類別不在新列表中 (例如從支出切到收入)
-                            # 則將舊類別附加到選項中，並選中它
-                            category_options.append(record_category) 
-                            cat_index = category_options.index(record_category)
-                            
-                        new_category = st.selectbox("類別", options=category_options, index=cat_index, key=f"edit_cat_{record_id}")
-                    
+                            if record_category:
+                                category_options = category_options + [record_category]
+                                cat_index = category_options.index(record_category)
+                            else:
+                                cat_index = 0 if category_options else 0
+
+                        new_category = st.selectbox(
+                            "類別", options=category_options or ["未分類"],
+                            index=min(cat_index, max(len(category_options) - 1, 0)),
+                            key=f"edit_cat_{record_id}"
+                        )
+
                     with edit_cols_2[1]:
-                        new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
+                        new_note = st.text_area("備註", value=record_note or "", key=f"edit_note_{record_id}", height=100)
 
+                    # -- 提交/取消（總是出現在表單最後，避免 Missing Submit Button） --
+                    col_save, col_cancel, _ = st.columns([1, 1, 3])
+                    save = col_save.form_submit_button("💾 儲存變更", use_container_width=True, type="primary")
+                    cancel = col_cancel.form_submit_button("❌ 取消", use_container_width=True, type="secondary")
 
-                    form_cols = st.columns([1, 1, 3])
-                    with form_cols[0]:
-                        if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
-                            
+                    if cancel:
+                        st.session_state.editing_record_id = None
+                        st.rerun()
+
+                    if save:
+                        # 這裡再做所有驗證（不要在上面提早 st.stop()）
+                        if new_amount is None or int(new_amount) <= 0:
+                            st.warning("⚠️ 金額需為正整數。")
+                        elif not isinstance(new_date, datetime.date):
+                            st.warning("⚠️ 日期格式不正確。")
+                        elif not new_category:
+                            st.warning("⚠️ 請選擇或輸入類別。")
+                        else:
                             new_data = {
                                 'date': new_date,
                                 'type': new_type,
                                 'category': new_category,
-                                'amount': float(new_amount),
-                                'note': new_note.strip() or "無備註",
+                                'amount': float(int(new_amount)),
+                                'note': (new_note or "").strip() or "無備註",
                             }
-                            old_data = {
-                                'type': record_type,
-                                'amount': record_amount
-                            }
-                            
+                            old_data = {'type': record_type, 'amount': record_amount}
+
                             update_record(db, user_id, record_id, new_data, old_data)
-                            st.session_state.editing_record_id = None 
+                            st.session_state.editing_record_id = None
                             st.rerun()
-                            
-                    with form_cols[1]:
-                        if st.form_submit_button("❌ 取消", type="secondary", use_container_width=True):
-                            st.session_state.editing_record_id = None 
-                            st.rerun()
-                # 📌 表單在這裡結束
+                # 📌 表單結束
 
             else:
                 
