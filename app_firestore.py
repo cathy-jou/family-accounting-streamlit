@@ -450,8 +450,8 @@ def update_record(db: firestore.Client, user_id: str, record_id: str, new_data: 
             
         st.toast("✅ 紀錄已更新！", icon="🎉")
         
-        # 4. 清除快取 (確保您使用的是 v2 函式)
-        get_all_records_v2.clear() 
+        # 4. 清除快取 
+        get_all_records.clear() 
         get_current_balance.clear()
         
     except Exception as e:
