@@ -889,8 +889,8 @@ def display_records_list(db, user_id, df_records):
                     with edit_cols_2[1]:
                         new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
 
-                    # 📌 修正縮排：提交按鈕必須在 st.form 區塊 *內部*
-                    form_cols = st.columns([1, 1, 3])
+
+                    form_cols = st.columns([1,1,3])
                     with form_cols[0]:
                         if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
                             
