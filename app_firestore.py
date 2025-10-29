@@ -809,8 +809,6 @@ def display_records_list(db, user_id, df_records):
     if type_filter != '全部':
         df_filtered = df_filtered.loc[df_filtered['type'] == type_filter].copy()
 
-    # 📌 修正：如果沒有在 'editing' 模式下，才進行排序
-    # (避免在編輯時，表單跳到別的位置)
     if st.session_state.editing_record_id is None:
         df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
@@ -832,7 +830,7 @@ def display_records_list(db, user_id, df_records):
 
     # --- 紀錄列表標題 ---
     st.markdown("### 紀錄明細")
-    header_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) # 📌 修正：調整寬度以容納編輯按鈕
+    header_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
     headers = ['日期', '類別', '金額', '類型', '備註', '操作']
     for col, header in zip(header_cols, headers):
         col.markdown(f"**{header}**")
@@ -844,10 +842,10 @@ def display_records_list(db, user_id, df_records):
         for index, row in df_filtered.iterrows():
             try:
                 record_id = row['id']
-                record_date_obj = row.get('date') # 這是 datetime 物件
+                record_date_obj = row.get('date') 
                 record_type = row.get('type', 'N/A')
                 record_category = row.get('category', 'N/A')
-                record_amount = float(row.get('amount', 0)) # 確保是 float
+                record_amount = float(row.get('amount', 0)) 
                 record_note = row.get('note', 'N/A')
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
@@ -862,7 +860,6 @@ def display_records_list(db, user_id, df_records):
                     
                     edit_cols_1 = st.columns(3)
                     with edit_cols_1[0]:
-                        # 確保 date_input 收到的是 date 物件
                         new_date = st.date_input("日期", value=record_date_obj.date() if record_date_obj else datetime.date.today(), key=f"edit_date_{record_id}")
                     with edit_cols_1[1]:
                         new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
@@ -871,26 +868,22 @@ def display_records_list(db, user_id, df_records):
                     
                     edit_cols_2 = st.columns(2)
                     with edit_cols_2[0]:
-                        # 動態獲取類別選項
                         category_options = CATEGORIES.get(new_type, [])
                         if new_type == '支出':
-                            all_db_categories = get_all_categories(db, user_id) # 重新獲取
+                            all_db_categories = get_all_categories(db, user_id) 
                             unique_categories = sorted(list(set(category_options + all_db_categories)))
                             category_options = unique_categories
-                        
-                        # 找到當前類別的索引
                         try:
                             cat_index = category_options.index(record_category)
                         except ValueError:
-                            category_options.append(record_category) # 如果類別不在列表中，補上
+                            category_options.append(record_category) 
                             cat_index = category_options.index(record_category)
-                            
                         new_category = st.selectbox("類別", options=category_options, index=cat_index, key=f"edit_cat_{record_id}")
                     
                     with edit_cols_2[1]:
                         new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
 
-                    # 提交按鈕
+                    # 📌 --- 修正：提交按鈕必須在 st.form 區塊 *內部* --- 📌
                     form_cols = st.columns([1, 1, 3])
                     with form_cols[0]:
                         if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
@@ -908,21 +901,20 @@ def display_records_list(db, user_id, df_records):
                             }
                             
                             update_record(db, user_id, record_id, new_data, old_data)
-                            st.session_state.editing_record_id = None # 關閉編輯模式
+                            st.session_state.editing_record_id = None 
                             st.rerun()
                             
                     with form_cols[1]:
                         if st.form_submit_button("❌ 取消", type="secondary", use_container_width=True):
-                            st.session_state.editing_record_id = None # 關閉編輯模式
+                            st.session_state.editing_record_id = None 
                             st.rerun()
+                # 📌 --- st.form 區塊在這裡結束 --- 📌
             
             else:
                 
                 # --- 模式 B：顯示「一般紀錄列」 (您原本的邏輯) ---
-                
-                # 格式化日期
                 if pd.isna(record_date_obj):
-                    record_id_str = row.get('id', 'N/A') # 確保有 ID
+                    record_id_str = row.get('id', 'N/A') 
                     record_date_str = f"日期錯誤 (ID: {record_id_str})"
                 else:
                     try:
@@ -934,7 +926,6 @@ def display_records_list(db, user_id, df_records):
                 amount_sign = "+" if record_type == '收入' else "-"
 
                 with st.container(border=True):
-                    # 📌 修正：這裡的 st.columns 必須與標題的寬度匹配
                     row_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
                     row_cols[0].write(record_date_str)
                     row_cols[1].write(record_category)
@@ -942,12 +933,10 @@ def display_records_list(db, user_id, df_records):
                     row_cols[3].write(record_type)
                     row_cols[4].write(record_note)
 
-                    # 📌 修正：新增 ✏️ 編輯按鈕
                     if row_cols[5].button("✏️", key=f"edit_{record_id}", help="編輯此紀錄"):
                         st.session_state.editing_record_id = record_id
                         st.rerun()
 
-                    # 刪除按鈕
                     if row_cols[5].button("🗑️", key=f"delete_{record_id}", type="secondary", help="刪除此紀錄"):
                         delete_record(
                             db=db,
