@@ -6,6 +6,27 @@ from google.cloud import firestore
 import uuid # 雖然不再生成，但保留 import 以防未來需要
 import os # 導入 os 庫用於環境變數檢查
 
+
+# --- 安全轉型工具 ---
+def safe_float(v, default=0.0):
+    try:
+        return float(v)
+    except Exception:
+        try:
+            # handle strings like "1,000" or "100.0"
+            return float(str(v).replace(',', '').strip())
+        except Exception:
+            return default
+
+def safe_int(v, default=0):
+    try:
+        return int(v)
+    except Exception:
+        try:
+            return int(float(str(v).replace(',', '').strip()))
+        except Exception:
+            return default
+
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa"
 RECORD_COLLECTION_NAME = "records"       # 交易紀錄 Collection 名稱
@@ -214,7 +235,7 @@ def set_balance(db: firestore.Client, user_id: str, new_balance: float):
     if db is None: return
     balance_ref = get_balance_ref(db, user_id)
     try:
-        balance_ref.set({'balance': float(new_balance), 'last_updated': datetime.datetime.now()})
+        balance_ref.set({'balance': safe_float(new_balance), 'last_updated': datetime.datetime.now()})
         st.toast("✅ 總餘額已手動更新！", icon="🎉")
         # 清除快取以強制重新讀取
         get_current_balance.clear()
@@ -373,7 +394,7 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
         st.toast("✅ 交易紀錄已新增！", icon="🎉")
 
         # 更新餘額
-        amount = float(record_data['amount'])
+        amount = safe_float(record_data.get('amount', 0))
         operation = 'add' if record_data['type'] == '收入' else 'subtract'
         update_balance_transactional(db, user_id, amount, operation)
 
@@ -396,7 +417,7 @@ def delete_record(db: firestore.Client, user_id: str, record_id: str, record_typ
 
         # 回滾餘額
         operation = 'subtract' if record_type == '收入' else 'add' # 注意操作相反
-        update_balance_transactional(db, user_id, float(record_amount), operation)
+        update_balance_transactional(db, user_id, safe_float(record_amount), operation)
 
         st.rerun() # 強制刷新頁面
 
@@ -566,7 +587,7 @@ def display_dashboard(db, user_id):
 
     # 獲取數據
     df_records = get_all_records(db, user_id)
-    current_balance = get_current_balance(db, user_id)
+    current_balance = get_current_balance(db, user_id) or 0
 
     # --- 概覽卡片 ---
     st.markdown("## 財務概覽")
@@ -733,7 +754,7 @@ def display_record_input(db, user_id):
                 'date': date,
                 'type': record_type,
                 'category': final_category,
-                'amount': float(amount),
+                'amount': safe_float(amount),
                 'note': note.strip() or "無備註",
                 'timestamp': datetime.datetime.now()
             }
@@ -845,7 +866,7 @@ def display_records_list(db, user_id, df_records):
                 record_date_obj = row.get('date') 
                 record_type = row.get('type', 'N/A')
                 record_category = row.get('category', 'N/A')
-                record_amount = float(row.get('amount', 0)) 
+                record_amount = safe_float(row.get('amount', 0)) 
                 record_note = row.get('note', 'N/A')
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
@@ -864,7 +885,7 @@ def display_records_list(db, user_id, df_records):
                 with edit_cols_1[1]:
                     new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
                 with edit_cols_1[2]:
-                    new_amount = st.number_input("金額", min_value=0, value=(lambda v: (int(float(v)) if v not in (None, "") else 0))(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
+                    new_amount = st.number_input("金額", min_value=0, value=safe_int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
                 
                 edit_cols_2 = st.columns(2)
                 with edit_cols_2[0]:
@@ -896,7 +917,7 @@ def display_records_list(db, user_id, df_records):
                     st.rerun()
                 
                 if save_clicked:
-                    if new_amount is None or int(new_amount) <= 0:
+                    if new_amount is None or safe_int(new_amount) <= 0:
                         st.warning("⚠️ 金額需為正整數。")
                     elif not isinstance(new_date, datetime.date):
                         st.warning("⚠️ 日期格式不正確。")
@@ -907,7 +928,7 @@ def display_records_list(db, user_id, df_records):
                             'date': new_date,
                             'type': new_type,
                             'category': new_category,
-                            'amount': float(int(new_amount)),
+                            'amount': float(safe_int(new_amount)),
                             'note': (new_note or "").strip() or "無備註",
                         }
                         old_data = {'type': record_type, 'amount': record_amount}
@@ -1129,7 +1150,7 @@ def display_balance_management(db, user_id, current_balance):
                 "設定新的總餘額 (NT$)",
                 min_value=-10_000_000, # 允許負數
                 max_value=1_000_000_000, # 設定上限
-                value=int(current_balance), # 預設顯示當前餘額
+                value=safe_int(current_balance), # 預設顯示當前餘額
                 step=1000,
                 format="%d",
                 key='new_balance_input',
@@ -1142,7 +1163,7 @@ def display_balance_management(db, user_id, current_balance):
             submitted = st.form_submit_button("💰 確認更新餘額", use_container_width=True)
 
             if submitted:
-                set_balance(db, user_id, float(new_balance_input))
+                set_balance(db, user_id, safe_float(new_balance_input))
                 st.rerun() # 更新後立即重跑以顯示新餘額
 
 
@@ -1159,7 +1180,7 @@ def display_bank_account_management(db, user_id):
     total_manual_balance = 0
     if bank_accounts and isinstance(bank_accounts, dict):
         total_manual_balance = sum(float(acc.get('balance', 0)) for acc in bank_accounts.values() if isinstance(acc, dict))
-        st.metric("手動帳戶總餘額", f"NT$ {total_manual_balance:,.0f}")
+        st.metric("手動帳戶總餘額", f"NT$ {safe_int(total_manual_balance):,}")
 
         st.markdown("### 現有帳戶列表")
         
@@ -1185,7 +1206,7 @@ def display_bank_account_management(db, user_id):
             # 使用唯一的 key (acc_id) 來讓 Streamlit 追蹤每個輸入框的狀態
             col_balance.number_input(
                 "餘額",
-                value=int(acc_data.get('balance', 0)),
+                value=safe_int(acc_data.get('balance', 0)),
                 step=100,
                 format="%d",
                 key=f"balance_{acc_id}", # 關鍵：唯一的 key
@@ -1196,7 +1217,7 @@ def display_bank_account_management(db, user_id):
             if col_actions.button("🔄 更新", key=f"update_acc_{acc_id}"):
                 # 從 st.session_state 讀取 number_input 的當前值
                 new_balance = st.session_state[f"balance_{acc_id}"]
-                bank_accounts[acc_id]['balance'] = float(new_balance)
+                bank_accounts[acc_id]['balance'] = safe_float(new_balance)
                 
                 # 更新 Firestore
                 update_bank_accounts(db, user_id, bank_accounts)
@@ -1225,7 +1246,7 @@ def display_bank_account_management(db, user_id):
         if submitted and new_account_name:
             new_account_id = str(uuid.uuid4()) # 為新帳戶生成唯一 ID
             if not isinstance(bank_accounts, dict): bank_accounts = {} # 確保是字典
-            bank_accounts[new_account_id] = {'name': new_account_name, 'balance': float(new_account_balance)}
+            bank_accounts[new_account_id] = {'name': new_account_name, 'balance': safe_float(new_account_balance)}
             update_bank_accounts(db, user_id, bank_accounts)
             st.rerun() # 新增後重跑
         elif submitted:
@@ -1288,7 +1309,7 @@ def app():
     # 📌 修正 #5: "設定餘額" 移到 tab4
     with tab4:
         # 原本 "設定餘額" 的內容
-        current_balance = get_current_balance(db, user_id)
+        current_balance = get_current_balance(db, user_id) or 0
         display_balance_management(db, user_id, current_balance)
 
 # --- 應用程式啟動 ---
