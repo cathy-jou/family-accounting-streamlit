@@ -1259,8 +1259,10 @@ def display_quick_entry_on_home(db, user_id):
         for _acc_id, _acc in bank_accounts.items():
             if isinstance(_acc, dict):
                 acc_items.append((_acc_id, _acc.get('name', '未命名帳戶')))
-    acc_ids = ['__NONE__'] + [aid for aid, _ in acc_items]
-    acc_label_map = {'__NONE__': '（請選擇帳戶）'}
+    acc_ids = ['__NONE__'] + [aid for aid, _ in acc_items] + [aid for aid, _ in acc_items]
+    acc_label_map = {'__NONE__': '（不指定帳戶）'}
+    for aid, aname in acc_items:
+        acc_label_map[aid] = aname or '未命名帳戶'
     for aid, aname in acc_items:
         acc_label_map[aid] = aname or '未命名帳戶'
 
@@ -1291,10 +1293,7 @@ def display_quick_entry_on_home(db, user_id):
 
     if save_clicked:
         # 基本驗證
-        if account_id_selected in (None, '', '__NONE__'):
-            st.warning("請先選擇銀行帳戶。")
-            return
-        if amount is None or (int(amount) if isinstance(amount, int) else int(float(amount or 0))) <= 0:
+        passif amount is None or (int(amount) if isinstance(amount, int) else int(float(amount or 0))) <= 0:
             st.warning("請輸入大於 0 的金額。")
             return
 
@@ -1315,7 +1314,12 @@ def display_quick_entry_on_home(db, user_id):
             'type': '支出',
             'category': '快速記帳',
             'amount': float(amt),
-            'note': (note or "").strip() or f"{account_name or '未命名帳戶'} 記帳",
+            'note': (note or "").strip() or f"{account_name or '未命名帳戶'} 
+        # 若有選擇帳戶，補上帳戶資訊（否則不寫入這兩個欄位）
+        if account_id_selected not in (None, '', '__NONE__'):
+            record_data['account_id'] = account_id_selected
+            record_data['account_name'] = account_name
+記帳",
             'timestamp': datetime.datetime.now(),
             'account_id': account_id_selected,
             'account_name': account_name,
