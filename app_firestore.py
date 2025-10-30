@@ -773,6 +773,14 @@ def display_record_input(db, user_id):
                 'note': note.strip() or "無備註",
                 'timestamp': datetime.datetime.now()
             }
+            # 若有選擇銀行帳戶：附加 account_id/name
+            if account_id_selected and account_id_selected != '__NONE__':
+                record_data['account_id'] = account_id_selected
+                try:
+                    record_data['account_name'] = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
+                except Exception:
+                    record_data['account_name'] = ''
+
             # 若有選擇銀行帳戶，記錄 account_id 與 account_name
             if account_id_selected and account_id_selected != '__NONE__':
                 record_data['account_id'] = account_id_selected
@@ -782,6 +790,53 @@ def display_record_input(db, user_id):
                     record_data['account_name'] = ''
 
             add_record(db, user_id, record_data)
+            # 若綁定帳戶，依收入/支出自動調整帳戶餘額
+            if 'account_id_selected' in locals() and account_id_selected and account_id_selected != '__NONE__':
+                try:
+                    ba = load_bank_accounts(db, user_id) or {}
+                    if isinstance(ba, dict):
+                        if account_id_selected not in ba or not isinstance(ba[account_id_selected], dict):
+                            ba[account_id_selected] = {'name': record_data.get('account_name',''), 'balance': 0}
+                        current_bal = safe_float(ba[account_id_selected].get('balance', 0))
+                        delta = float(safe_int(amount)) * (-1.0 if record_type == '支出' else 1.0)
+                        ba[account_id_selected]['balance'] = current_bal + delta
+                        update_bank_accounts(db, user_id, ba)
+                except Exception as _e:
+                    st.warning(f"⚠️ 帳戶餘額未能同步更新：{_e}")
+
+            # 若選擇了銀行帳戶，依收支類型即時調整該帳戶餘額
+            try:
+                if account_id_selected and account_id_selected != '__NONE__':
+                    _accounts = load_bank_accounts(db, user_id) or {}
+                    if not isinstance(_accounts, dict):
+                        _accounts = {}
+                    _acc = _accounts.get(account_id_selected, {})
+                    _bal = _acc.get('balance', 0)
+                    try:
+                        _bal = float(_bal)
+                    except Exception:
+                        try:
+                            _bal = float(str(_bal).replace(',', '').strip())
+                        except Exception:
+                            _bal = 0.0
+
+                    _amt = float(safe_int(amount))
+                    if record_type == '支出':
+                        _new_bal = _bal - _amt
+                    else:  # '收入'
+                        _new_bal = _bal + _amt
+
+                    # 寫回
+                    if account_id_selected not in _accounts or not isinstance(_accounts[account_id_selected], dict):
+                        _accounts[account_id_selected] = {'name': record_data.get('account_name',''), 'balance': _new_bal}
+                    else:
+                        _accounts[account_id_selected]['balance'] = _new_bal
+
+                    update_bank_accounts(db, user_id, _accounts)
+                    st.toast(f"🏦 已更新「{record_data.get('account_name','選定帳戶')}」餘額：NT$ {int(_new_bal):,}")
+            except Exception as _e:
+                st.warning(f"更新帳戶餘額時發生問題：{_e}")
+
             # 清除快取並重跑以更新儀表板
             st.cache_data.clear() # 清除所有 @st.cache_data
             st.cache_resource.clear() # 清除所有 @st.cache_resource (包括 DB 連線，下次自動重連)
