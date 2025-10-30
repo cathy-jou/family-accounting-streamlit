@@ -355,7 +355,8 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
                 df[col] = None
 
         # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
-        df['date'] = pd.to_datetime(df['date'], errors='coerce') 
+        # df['date'] = pd.to_datetime(df['date'], errors='coerce') 
+        df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True).dt.tz_convert(None)
 
         # 轉換其他類型
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
