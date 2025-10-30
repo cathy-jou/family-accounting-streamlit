@@ -881,7 +881,7 @@ def display_records_list(db, user_id, df_records):
                 record_date_obj = row.get('date') 
                 record_type = row.get('type', 'N/A')
                 record_category = row.get('category', 'N/A')
-                record_amount = float(row.get('amount', 0)) 
+                record_amount = safe_float(row.get('amount', 0)) 
                 record_note = row.get('note', 'N/A')
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
@@ -889,27 +889,6 @@ def display_records_list(db, user_id, df_records):
 
             # 📌 關鍵：檢查這筆紀錄是否正在被編輯
             if record_id == st.session_state.get('editing_record_id'):
-                
-                # # --- 模式 A：顯示「編輯表單」 ---
-                # # --- 編輯模式（非 form 版） ---
-                # # 本地安全轉型，避免名稱未定義問題
-                # def _safe_float(v, default=0.0):
-                #     try:
-                #         return float(v)
-                #     except Exception:
-                #         try:
-                #             return float(str(v).replace(',', '').strip())
-                #         except Exception:
-                #             return default
-                
-                # def _safe_int(v, default=0):
-                #     try:
-                #         return int(v)
-                #     except Exception:
-                #         try:
-                #             return int(float(str(v).replace(',', '').strip()))
-                #         except Exception:
-                #             return default
                 
                 st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
                 edit_cols_1 = st.columns(3)
@@ -973,7 +952,6 @@ def display_records_list(db, user_id, df_records):
 
             else:
                 
-                # --- 模式 B：顯示「一般紀錄列」 (您原本的邏輯) ---
                 if pd.isna(record_date_obj):
                     record_id_str = row.get('id', 'N/A') 
                     record_date_str = f"日期錯誤 (ID: {record_id_str})"
