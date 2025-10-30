@@ -1244,11 +1244,10 @@ def display_quick_spend_on_dashboard(db, user_id):
         st.info("尚未新增任何銀行帳戶。請先到「帳戶管理」新增。")
         return
 
-    cols_header = st.columns([3,2,2,3])
+    cols_header = st.columns([4,3,4])
     cols_header[0].markdown("**帳戶名稱**")
-    cols_header[1].markdown("**目前餘額**")
-    cols_header[2].markdown("**支出金額**")
-    cols_header[3].markdown("**備註**")
+    cols_header[1].markdown("**支出金額**")
+    cols_header[2].markdown("**備註**")
 
     for acc_id, acc in bank_accounts.items():
         if not isinstance(acc, dict): 
@@ -1256,20 +1255,20 @@ def display_quick_spend_on_dashboard(db, user_id):
         name = acc.get('name', '未命名帳戶')
         balance = safe_float(acc.get('balance', 0))
 
-        c1, c2, c3, c4, c5 = st.columns([3,2,2,3,1])
+        c1, c2, c3, c4 = st.columns([4,3,4,1])
         c1.write(name)
         c2.write(f"NT$ {safe_int(balance):,}")
 
         spend_key = f"quick_spend_{acc_id}"
         spend_note_key = f"quick_spend_note_{acc_id}"
-        spend_amt = c3.number_input(
+        spend_amt = c2.number_input(
             " ",
             min_value=0, step=100, format="%d",
             key=spend_key
         )
-        note = c4.text_input(" ", placeholder="可選：例如 超商小額", key=spend_note_key)
+        note = c3.text_input(" ", placeholder="可選：例如 超商小額", key=spend_note_key)
 
-        if c5.button("扣款", key=f"do_spend_{acc_id}"):
+        if c4.button("扣款", key=f"do_spend_{acc_id}"):
             amt = safe_int(spend_amt)
             if amt <= 0:
                 st.warning("請輸入大於 0 的金額。")
