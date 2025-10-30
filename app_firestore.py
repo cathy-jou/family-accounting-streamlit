@@ -890,6 +890,48 @@ def display_records_list(db, user_id, df_records):
             # 📌 關鍵：檢查這筆紀錄是否正在被編輯
             if record_id == st.session_state.get('editing_record_id'):
                 
+
+                # 本地 _safe_date，避免 NaT/None/字串 型別錯誤
+                def _safe_date(v):
+                    import datetime
+                    try:
+                        try:
+                            import pandas as pd
+                            if hasattr(pd, "isna") and pd.isna(v):
+                                return datetime.date.today()
+                            if isinstance(v, pd.Timestamp):
+                                return v.to_pydatetime().date()
+                        except Exception:
+                            pass
+                        try:
+                            import numpy as np
+                            if isinstance(v, np.datetime64):
+                                ts = v.astype('M8[ms]').astype('O')
+                                if ts is None:
+                                    return datetime.date.today()
+                                return ts.date() if hasattr(ts, 'date') else datetime.date.today()
+                        except Exception:
+                            pass
+                        if v is None:
+                            return datetime.date.today()
+                        if isinstance(v, datetime.datetime):
+                            return v.date()
+                        if isinstance(v, datetime.date):
+                            return v
+                        if hasattr(v, "date"):
+                            try:
+                                return v.date()
+                            except Exception:
+                                pass
+                        s = str(v).strip()
+                        if not s:
+                            return datetime.date.today()
+                        try:
+                            return datetime.date.fromisoformat(s[:10])
+                        except Exception:
+                            return datetime.date.today()
+                    except Exception:
+                        return datetime.date.today()
                 st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
                 edit_cols_1 = st.columns(3)
                 with edit_cols_1[0]:
