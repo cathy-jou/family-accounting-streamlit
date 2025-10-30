@@ -1232,9 +1232,9 @@ def display_bank_account_management(db, user_id):
 
 # --- 7. 主應用程式框架 (使用 st.tabs) ---
 
-def display_quick_spend_on_dashboard(db, user_id):
+def display_quick_entry_on_home(db, user_id):
     """在儀表板首頁快速支出：對每個銀行帳戶提供即時扣款輸入。*不顯示任何餘額資訊*"""
-    st.markdown("### 🏦 直接輸入支出（快速扣款）")
+    st.markdown("### 🏦 快速記帳")
     bank_accounts = load_bank_accounts(db, user_id)  # {account_id: {'name':..., 'balance':...}}
 
     if not bank_accounts:
@@ -1330,9 +1330,10 @@ def app():
     # 📌 2. 將原來的 if/elif 內容放入對應的 tab 中
     with tab1:
         # 原本 "儀表板" 的內容
+        display_quick_entry_on_home(db, user_id)
+        st.markdown('---')
         display_dashboard(db, user_id)
         st.markdown('---')
-        display_quick_spend_on_dashboard(db, user_id)
 
     # 📌 修正 #3: 將 "新增" 和 "查看" 合併到 tab2
     with tab2:
