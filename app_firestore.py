@@ -689,8 +689,6 @@ def display_dashboard(db, user_id):
         else:
             st.info("ℹ️ 尚無支出紀錄可繪製分佈圖。")
 
-    st.markdown("---", unsafe_allow_html=True) # 分隔線
-
 def display_record_input(db, user_id):
     """顯示新增交易紀錄的表單"""
     st.markdown("## 新增交易紀錄")
