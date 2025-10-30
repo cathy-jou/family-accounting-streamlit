@@ -365,19 +365,12 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
+        return df
 
-    # 將 timestamp 也統一為 UTC → 去除時區
-    if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True).dt.tz_convert(None)
-        # 若 date 還是 NaT，使用 timestamp 回填
-        mask = df['date'].isna() & df['timestamp'].notna()
-        df.loc[mask, 'date'] = df.loc[mask, 'timestamp']
-            return df
-
-        except Exception as e:
-            st.error(f"❌ 獲取交易紀錄失敗: {e}")
-            # 返回帶有正確欄位的空 DataFrame
-            return pd.DataFrame(columns=['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp'])
+    except Exception as e:
+        st.error(f"❌ 獲取交易紀錄失敗: {e}")
+        # 返回帶有正確欄位的空 DataFrame
+        return pd.DataFrame(columns=['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp'])
 
 
 def add_record(db: firestore.Client, user_id: str, record_data: dict):
@@ -415,8 +408,6 @@ def add_record(db: firestore.Client, user_id: str, record_data: dict):
         doc_ref = records_ref.add(record_data) # add 會返回 DocumentReference 和 timestamp
         st.toast("✅ 交易紀錄已新增！", icon="🎉")
 
-# 寫入成功後清除紀錄快取，避免顯示舊資料
-get_all_records.clear()
         # 更新餘額
         amount = float(record_data['amount'])
         operation = 'add' if record_data['type'] == '收入' else 'subtract'
