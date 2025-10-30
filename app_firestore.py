@@ -894,7 +894,7 @@ def display_records_list(db, user_id, df_records):
                 edit_cols_1 = st.columns(3)
                 with edit_cols_1[0]:
                     default_date = safe_date(record_date_obj) # <-- 直接使用全域函式
-                    new_date = st.date_input("日期", value=safe_date(default_date) if "safe_date" in globals() else default_date, key=f"edit_date_{record_id}")
+                    new_date = st.date_input("日期", value=_safe_date(default_date), key=f"edit_date_{record_id}")
                 with edit_cols_1[1]:
                     new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
                 with edit_cols_1[2]:
