@@ -366,18 +366,18 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
 
-# 將 timestamp 也統一為 UTC → 去除時區
-if 'timestamp' in df.columns:
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True).dt.tz_convert(None)
-    # 若 date 還是 NaT，使用 timestamp 回填
-    mask = df['date'].isna() & df['timestamp'].notna()
-    df.loc[mask, 'date'] = df.loc[mask, 'timestamp']
-        return df
+    # 將 timestamp 也統一為 UTC → 去除時區
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True).dt.tz_convert(None)
+        # 若 date 還是 NaT，使用 timestamp 回填
+        mask = df['date'].isna() & df['timestamp'].notna()
+        df.loc[mask, 'date'] = df.loc[mask, 'timestamp']
+            return df
 
-    except Exception as e:
-        st.error(f"❌ 獲取交易紀錄失敗: {e}")
-        # 返回帶有正確欄位的空 DataFrame
-        return pd.DataFrame(columns=['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp'])
+        except Exception as e:
+            st.error(f"❌ 獲取交易紀錄失敗: {e}")
+            # 返回帶有正確欄位的空 DataFrame
+            return pd.DataFrame(columns=['id', 'date', 'type', 'category', 'amount', 'note', 'timestamp'])
 
 
 def add_record(db: firestore.Client, user_id: str, record_data: dict):
