@@ -1314,16 +1314,15 @@ def display_quick_entry_on_home(db, user_id):
             'type': '支出',
             'category': '快速記帳',
             'amount': float(amt),
-            'note': (note or "").strip() or f"{account_name or '未命名帳戶'} 
+            'note': (note or "").strip() or f"{account_name or '未命名帳戶'} 記帳",
+            'timestamp': datetime.datetime.now(),
+        }
+
         # 若有選擇帳戶，補上帳戶資訊（否則不寫入這兩個欄位）
         if account_id_selected not in (None, '', '__NONE__'):
             record_data['account_id'] = account_id_selected
             record_data['account_name'] = account_name
-記帳",
-            'timestamp': datetime.datetime.now(),
-            'account_id': account_id_selected,
-            'account_name': account_name,
-        }
+
         add_record(db, user_id, record_data)
 
         # 同步更新該帳戶餘額（支出扣）—不顯示餘額
