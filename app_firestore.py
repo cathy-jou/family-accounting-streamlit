@@ -178,6 +178,42 @@ except Exception as e:
 
 
 # --- 3. Firestore 路徑輔助函數 ---
+def safe_float(v, default=0.0):
+    """安全地將值轉換為 float"""
+    try:
+        return float(v)
+    except (ValueError, TypeError, AttributeError):
+        try:
+            # 嘗試移除逗號和空白
+            return float(str(v).replace(',', '').strip())
+        except (ValueError, TypeError, AttributeError):
+            return default
+
+def safe_int(v, default=0):
+    """安全地將值轉換為 int (透過 safe_float)"""
+    try:
+        # 先轉成 float 再轉 int，以處理 "100.0" 這樣的字串
+        return int(safe_float(v, default))
+    except (ValueError, TypeError, AttributeError):
+        return default
+
+def safe_date(v, default_date=None):
+    """安全地將值轉換為 date 物件"""
+    if default_date is None:
+        default_date = datetime.date.today()
+        
+    if isinstance(v, datetime.date):
+        return v
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if pd.isna(v) or v is None:
+        return default_date
+    try:
+        # 嘗試從字串或 timestamp 解析
+        return pd.to_datetime(v).date()
+    except Exception:
+        return default_date
+
 def get_record_ref(db: firestore.Client, user_id: str):
     """獲取用戶交易紀錄的 Collection 參考"""
     return db.collection('users').document(user_id).collection(RECORD_COLLECTION_NAME)
@@ -733,7 +769,7 @@ def display_record_input(db, user_id):
                 'date': date,
                 'type': record_type,
                 'category': final_category,
-                'amount': float(safe_int(amount)),
+                'amount': float(amount),
                 'note': note.strip() or "無備註",
                 'timestamp': datetime.datetime.now()
             }
@@ -845,7 +881,7 @@ def display_records_list(db, user_id, df_records):
                 record_date_obj = row.get('date') 
                 record_type = row.get('type', 'N/A')
                 record_category = row.get('category', 'N/A')
-                record_amount = float(row.get('amount', 0)) 
+                record_amount = safe_float(row.get('amount', 0)) 
                 record_note = row.get('note', 'N/A')
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
@@ -854,71 +890,68 @@ def display_records_list(db, user_id, df_records):
             # 📌 關鍵：檢查這筆紀錄是否正在被編輯
             if record_id == st.session_state.get('editing_record_id'):
                 
-                # --- 模式 A：顯示「編輯表單」 ---
-                with st.form(key=f"edit_form_{record_id}"): # 📌 表單開始
-                    st.markdown(f"**正在編輯：** `{record_note[:20]}...`")
-                    
-                    edit_cols_1 = st.columns(3)
-                    with edit_cols_1[0]:
-                        new_date = st.date_input("日期", value=safe_date(record_date_obj) if "safe_date" in globals() else (record_date_obj if isinstance(record_date_obj, datetime.date) else datetime.date.today()), key=f"edit_date_{record_id}")
-                    with edit_cols_1[1]:
-                        new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
-                    with edit_cols_1[2]:
-                        new_amount = st.number_input("金額", min_value=1, value=int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
-                    
-                    edit_cols_2 = st.columns(2)
-                    with edit_cols_2[0]:
-                        # 動態獲取類別選項
-                        category_options = CATEGORIES.get(new_type, [])
-                        if new_type == '支出':
-                            all_db_categories = get_all_categories(db, user_id) 
-                            unique_categories = sorted(list(set(category_options + all_db_categories)))
-                            category_options = unique_categories
-                        
-                        # 📌 修正 ValueError：使用 try/except
+                st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
+                edit_cols_1 = st.columns(3)
+                with edit_cols_1[0]:
+                    default_date = safe_date(record_date_obj) # <-- 直接使用全域函式
+                    new_date = st.date_input("日期", value=default_date, key=f"edit_date_{record_id}")
+                with edit_cols_1[1]:
+                    new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
+                with edit_cols_1[2]:
+                    new_amount = st.number_input("金額", min_value=0, value=safe_int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
+                
+                edit_cols_2 = st.columns(2)
+                with edit_cols_2[0]:
+                    category_options = CATEGORIES.get(new_type, [])
+                    if new_type == '支出':
                         try:
+                            all_db_categories = get_all_categories(db, user_id)
+                        except Exception:
+                            all_db_categories = []
+                        category_options = sorted(list(set((category_options or []) + (all_db_categories or []))))
+                    try:
+                        cat_index = category_options.index(record_category)
+                    except ValueError:
+                        if record_category:
+                            category_options = (category_options or []) + [record_category]
                             cat_index = category_options.index(record_category)
-                        except ValueError:
-                            # 如果舊類別不在新列表中 (例如從支出切到收入)
-                            # 則將舊類別附加到選項中，並選中它
-                            category_options.append(record_category) 
-                            cat_index = category_options.index(record_category)
-                            
-                        new_category = st.selectbox("類別", options=category_options, index=cat_index, key=f"edit_cat_{record_id}")
-                    
-                    with edit_cols_2[1]:
-                        new_note = st.text_area("備註", value=record_note, key=f"edit_note_{record_id}", height=100)
-
-
-                    form_cols = st.columns([1, 1, 3])
-                    with form_cols[0]:
-                        if st.form_submit_button("💾 儲存變更", use_container_width=True, type="primary"):
-                            
-                            new_data = {
-                                'date': new_date,
-                                'type': new_type,
-                                'category': new_category,
-                                'amount': float(new_amount),
-                                'note': new_note.strip() or "無備註",
-                            }
-                            old_data = {
-                                'type': record_type,
-                                'amount': record_amount
-                            }
-                            
-                            update_record(db, user_id, record_id, new_data, old_data)
-                            st.session_state.editing_record_id = None 
-                            st.rerun()
-                            
-                    with form_cols[1]:
-                        if st.form_submit_button("❌ 取消", type="secondary", use_container_width=True):
-                            st.session_state.editing_record_id = None 
-                            st.rerun()
-                # 📌 表單在這裡結束
+                        else:
+                            cat_index = 0
+                    new_category = st.selectbox("類別", options=category_options or ["未分類"], index=min(cat_index, max(len(category_options)-1, 0)), key=f"edit_cat_{record_id}")
+                with edit_cols_2[1]:
+                    new_note = st.text_area("備註", value=record_note or "", key=f"edit_note_{record_id}", height=100)
+                
+                btn_cols = st.columns([1,1,3])
+                save_clicked = btn_cols[0].button("💾 儲存變更", use_container_width=True, key=f"save_btn_{record_id}")
+                cancel_clicked = btn_cols[1].button("❌ 取消", use_container_width=True, key=f"cancel_btn_{record_id}")
+                
+                if cancel_clicked:
+                    st.session_state.editing_record_id = None
+                    st.rerun()
+                
+                if save_clicked:
+                    if new_amount is None or safe_int(new_amount) <= 0:
+                        st.warning("⚠️ 金額需為正整數。")
+                    elif not isinstance(new_date, datetime.date):
+                        st.warning("⚠️ 日期格式不正確。")
+                    elif not new_category:
+                        st.warning("⚠️ 請選擇或輸入類別。")
+                    else:
+                        new_data = {
+                            'date': new_date,
+                            'type': new_type,
+                            'category': new_category,
+                            'amount': float(safe_int(new_amount)),
+                            'note': (new_note or "").strip() or "無備註",
+                        }
+                        old_data = {'type': record_type, 'amount': record_amount}
+                        update_record(db, user_id, record_id, new_data, old_data)
+                        st.session_state.editing_record_id = None
+                        st.rerun()
+# 📌 表單在這裡結束
 
             else:
                 
-                # --- 模式 B：顯示「一般紀錄列」 (您原本的邏輯) ---
                 if pd.isna(record_date_obj):
                     record_id_str = row.get('id', 'N/A') 
                     record_date_str = f"日期錯誤 (ID: {record_id_str})"
@@ -951,171 +984,6 @@ def display_records_list(db, user_id, df_records):
                             record_type=record_type,
                             record_amount=record_amount
                         )
-
-# def display_records_list(db, user_id, df_records):
-#     """顯示交易紀錄列表，包含篩選和刪除"""
-#     st.markdown("## 交易紀錄")
-
-#     if df_records is None or df_records.empty:
-#         st.info("ℹ️ 目前沒有任何交易紀錄。")
-#         return
-
-#     # --- 篩選器 ---
-#     st.markdown("### 篩選紀錄")
-#     col1, col2, col3 = st.columns([1, 1, 2])
-
-#     # 1. 月份篩選 (使用最新資料中的月份)
-#     # 確保 'date' 欄位存在且為 datetime 類型
-#     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
-#          st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
-#          all_months = []
-#          selected_month = None
-#     else:
-#         # 使用 .dt accessor 前確保非空且無 NaT
-#         date_series = df_records['date'].dropna()
-#         if not date_series.empty:
-#             # 確保 'month_year_period' 在每次篩選前重新計算
-#             # 使用 .copy() 避免 SettingWithCopyWarning
-#             df_copy = df_records.copy()
-#             df_copy['month_year_period'] = df_copy['date'].dt.to_period('M')
-#             all_months = sorted(df_copy['month_year_period'].dropna().unique().astype(str), reverse=True)
-#         else:
-#             all_months = []
-
-#         if not all_months:
-#              selected_month = None
-#              st.info("尚無紀錄可供篩選月份。")
-#         else:
-#              # 預設選中最新月份 (索引 0)
-#              selected_month = col1.selectbox(
-#                  "選擇月份",
-#                  options=all_months,
-#                  index=0, # 預設最新月份
-#                  key='month_selector'
-#              )
-
-#     # 2. 類型篩選
-#     type_filter = col2.selectbox(
-#         "選擇類型",
-#         options=['全部', '收入', '支出'],
-#         key='type_filter'
-#     )
-
-#     # 根據選定月份和類型篩選 DataFrame
-#     df_filtered = df_records.copy()
-#     if selected_month:
-#         try:
-#              # 將選中的月份字串轉回 Period 物件進行比較
-#              selected_month_period = pd.Period(selected_month, freq='M')
-#              # 確保 'month_year_period' 欄位存在
-#              if 'month_year_period' in df_filtered.columns:
-#                  # 使用 .loc 避免 SettingWithCopyWarning
-#                  df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
-#              else:
-#                  # 如果不存在，可能是因為上面重新計算時出錯，先嘗試重新計算
-#                  if 'date' in df_filtered.columns and pd.api.types.is_datetime64_any_dtype(df_filtered['date']):
-#                      date_series_filtered = df_filtered['date'].dropna()
-#                      if not date_series_filtered.empty:
-#                          df_filtered['month_year_period'] = df_filtered['date'].dt.to_period('M')
-#                          df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
-#                      else:
-#                          st.warning("無法按月份篩選，月份欄位處理出錯。")
-#                  else:
-#                      st.warning("無法按月份篩選，月份欄位處理出錯。")
-
-#         except (ValueError, TypeError):
-#              st.error("月份格式錯誤，無法篩選。")
-
-#     if type_filter != '全部':
-#         # 使用 .loc 避免 SettingWithCopyWarning
-#         df_filtered = df_filtered.loc[df_filtered['type'] == type_filter].copy()
-
-#     # 確保篩選後按日期倒序
-#     df_filtered = df_filtered.sort_values(by='date', ascending=False)
-
-
-#     # --- 導出按鈕 ---
-#     if not df_filtered.empty:
-#         csv = convert_df_to_csv(df_filtered) # 使用篩選後的數據
-#         file_name_month = selected_month if selected_month else "all"
-#         # 檢查 csv 是否為空字節串
-#         if csv:
-#             col3.download_button(
-#                 label="📥 下載篩選結果 (CSV)",
-#                 data=csv,
-#                 file_name=f'交易紀錄_{file_name_month}.csv',
-#                 mime='text/csv',
-#                 key='download_csv_button'
-#             )
-#         else:
-#             col3.warning("CSV 轉換失敗，無法下載。")
-#     else:
-#         col3.info("沒有符合篩選條件的紀錄可供下載。")
-
-
-#     st.markdown("---") # 分隔線
-
-#     # --- 紀錄列表標題 ---
-#     st.markdown("### 紀錄明細")
-#     header_cols = st.columns([1.2, 1, 1, 0.7, 9, 1]) # 增加備註寬度
-#     headers = ['日期', '類別', '金額', '類型', '備註', '操作']
-#     for col, header in zip(header_cols, headers):
-#         col.markdown(f"**{header}**")
-
-#     # --- 顯示篩選後的紀錄 ---
-#     if df_filtered.empty:
-#         st.info("ℹ️ 沒有符合篩選條件的交易紀錄。")
-#     else:
-#         for index, row in df_filtered.iterrows():
-#             try:
-#                 record_id = row['id']
-#                 # 檢查 date 是否為 NaT
-#                 record_date_obj = row.get('date')
-#                 # 📌 --- 修改開始 --- 📌
-#                 if pd.isna(record_date_obj):
-#                     # 讓程式在介面上直接顯示有問題的 ID
-#                     record_date_str = f"日期錯誤 (ID: {record_id})" 
-#                 else:
-#                     # 嘗試格式化日期
-#                      try:
-#                           record_date_str = record_date_obj.strftime('%Y-%m-%d')
-#                      except AttributeError: # 如果不是 datetime 物件
-#                           record_date_str = str(record_date_obj).split(' ')[0] # 嘗試取日期部分
-#                      except ValueError: # 無效日期
-#                           record_date_str = "日期格式無效"
-
-#                 record_type = row.get('type', 'N/A')
-#                 record_category = row.get('category', 'N/A')
-#                 record_amount = row.get('amount', 0)
-#                 record_note = row.get('note', 'N/A')
-#             except KeyError as e:
-#                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
-#                 continue
-
-#             color = "#28a745" if record_type == '收入' else "#dc3545"
-#             amount_sign = "+" if record_type == '收入' else "-"
-
-#             with st.container(border=True): # 使用 container 包裝每一行
-#                 # 使用與標題相同的比例
-#                 row_cols = st.columns([1.2, 1, 1, 0.7, 9, 1])
-#                 row_cols[0].write(record_date_str)
-#                 row_cols[1].write(record_category)
-#                 row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
-#                 row_cols[3].write(record_type)
-#                 row_cols[4].write(record_note)
-
-#                 # 刪除按鈕
-#                 delete_button_key = f"delete_{record_id}"
-#                 if row_cols[5].button("🗑️", key=delete_button_key, type="secondary", help="刪除此紀錄"):
-#                     delete_record(
-#                         db=db,
-#                         user_id=user_id,
-#                         record_id=record_id,
-#                         record_type=record_type,
-#                         record_amount=record_amount
-#                     )
-#             # st.markdown("---", unsafe_allow_html=True) # 移除行間分隔線，改用 container
-
 
 def display_balance_management(db, user_id, current_balance):
     """顯示餘額手動管理區塊"""
@@ -1233,6 +1101,70 @@ def display_bank_account_management(db, user_id):
 
 
 # --- 7. 主應用程式框架 (使用 st.tabs) ---
+
+def display_quick_spend_on_dashboard(db, user_id):
+    """在儀表板首頁快速支出：對每個銀行帳戶提供即時扣款輸入。"""
+    st.markdown("### 🏦 直接輸入支出（快速扣款）")
+    bank_accounts = load_bank_accounts(db, user_id)  # {account_id: {'name':..., 'balance':...}}
+
+    if not bank_accounts:
+        st.info("尚未新增任何銀行帳戶。請先到「帳戶管理」新增。")
+        return
+
+    cols_header = st.columns([3,2,2,3])
+    cols_header[0].markdown("**帳戶名稱**")
+    cols_header[1].markdown("**目前餘額**")
+    cols_header[2].markdown("**支出金額**")
+    cols_header[3].markdown("**備註**")
+
+    for acc_id, acc in bank_accounts.items():
+        if not isinstance(acc, dict): 
+            continue
+        name = acc.get('name', '未命名帳戶')
+        balance = safe_float(acc.get('balance', 0))
+
+        c1, c2, c3, c4, c5 = st.columns([3,2,2,3,1])
+        c1.write(name)
+        c2.write(f"NT$ {safe_int(balance):,}")
+
+        spend_key = f"quick_spend_{acc_id}"
+        spend_note_key = f"quick_spend_note_{acc_id}"
+        spend_amt = c3.number_input(
+            " ",
+            min_value=0, step=100, format="%d",
+            key=spend_key
+        )
+        note = c4.text_input(" ", placeholder="可選：例如 超商小額", key=spend_note_key)
+
+        if c5.button("扣款", key=f"do_spend_{acc_id}"):
+            amt = safe_int(spend_amt)
+            if amt <= 0:
+                st.warning("請輸入大於 0 的金額。")
+            elif amt > balance:
+                # 仍允許透支：可改成阻擋，這裡給提示後照常扣
+                st.warning("⚠️ 扣款金額大於目前餘額，將造成負餘額。")
+                # 繼續執行
+                pass
+
+            # 1) 新增一筆支出紀錄
+            record_data = {
+                'date': datetime.date.today(),
+                'type': '支出',
+                'category': '快速扣款',
+                'amount': float(amt),
+                'note': note.strip() or f"{name} 扣款",
+                'timestamp': datetime.datetime.now(),
+            }
+            add_record(db, user_id, record_data)
+
+            # 2) 更新該帳戶餘額（扣款）
+            bank_accounts[acc_id]['balance'] = safe_float(balance) - float(amt)
+            update_bank_accounts(db, user_id, bank_accounts)
+
+            st.toast(f"✅ 已從「{name}」扣款 NT$ {amt:,}")
+            st.rerun()
+
+
 def app():
     """主應用程式入口點"""
     set_ui_styles()
@@ -1267,6 +1199,8 @@ def app():
     with tab1:
         # 原本 "儀表板" 的內容
         display_dashboard(db, user_id)
+        st.markdown('---')
+        display_quick_spend_on_dashboard(db, user_id)
 
     # 📌 修正 #3: 將 "新增" 和 "查看" 合併到 tab2
     with tab2:
