@@ -30,10 +30,10 @@ def set_ui_styles():
             font-size: 15px;
         }}
         h1 {{
-            font-size: 1.8rem; font-weight: 700; color: #343a40; margin-bottom: 2.5rem;
+            font-size: 1.5rem; font-weight: 700; color: #343a40; margin-bottom: 2.5rem;
         }}
         h2 {{
-            font-size: 1.5rem; font-weight: 600; color: #495057; border-bottom: 2px solid #e9ecef;
+            font-size: 1.3rem; font-weight: 600; color: #495057; border-bottom: 2px solid #e9ecef;
             padding-bottom: 0.5rem; margin-top: 2rem; margin-bottom: 1.5rem;
         }}
         /* 主要背景顏色 */
@@ -598,7 +598,7 @@ def convert_df_to_csv(df: pd.DataFrame):
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
     """顯示儀表板主頁內容"""
-    st.title("宅宅家庭記帳本")
+    # st.title("宅宅家庭記帳本")
 
     # 獲取數據
     df_records = get_all_records(db, user_id)
@@ -1234,7 +1234,7 @@ def display_bank_account_management(db, user_id):
 
 def display_quick_entry_on_home(db, user_id):
     """在儀表板首頁快速支出：對每個銀行帳戶提供即時扣款輸入。*不顯示任何餘額資訊*"""
-    st.markdown("### 🏦 快速記帳")
+    st.markdown("### 快速記帳")
     bank_accounts = load_bank_accounts(db, user_id)  # {account_id: {'name':..., 'balance':...}}
 
     if not bank_accounts:
