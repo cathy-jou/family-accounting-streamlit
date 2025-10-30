@@ -355,7 +355,6 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
                 df[col] = None
 
         # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
-        # df['date'] = pd.to_datetime(df['date'], errors='coerce') 
         df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True).dt.tz_convert(None)
 
         # 轉換其他類型
@@ -1086,7 +1085,8 @@ def display_records_list(db, user_id, df_records):
                     record_date_str = f"日期錯誤 (ID: {record_id_str})"
                 else:
                     try:
-                         record_date_str = record_date_obj.strftime('%Y-%m-%d')
+                        #  record_date_str = record_date_obj.strftime('%Y-%m-%d')
+                         record_date_str = safe_date(record_date_obj).strftime('%Y-%m-%d')
                     except Exception:
                          record_date_str = str(record_date_obj).split(' ')[0]
 
