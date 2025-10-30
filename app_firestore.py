@@ -745,6 +745,34 @@ def display_record_input(db, user_id):
             key='date_input'
         )
 
+        # 銀行帳戶（可選）
+        try:
+            bank_accounts = load_bank_accounts(db, user_id)
+        except Exception:
+            bank_accounts = {}
+        acc_items = []
+        if isinstance(bank_accounts, dict):
+            for _acc_id, _acc in bank_accounts.items():
+                if isinstance(_acc, dict):
+                    acc_items.append((_acc_id, _acc.get('name', '未命名帳戶'), _acc.get('balance', 0)))
+        acc_options = ['__NONE__'] + [aid for aid, _, _ in acc_items]
+        acc_label_map = {'__NONE__': '（未選擇）'}
+        for aid, aname, abal in acc_items:
+            try:
+                disp = f"{aname}｜NT$ {int(float(abal)):,.0f}"
+            except Exception:
+                disp = f"{aname}｜NT$ {abal}"
+            acc_label_map[aid] = disp
+
+        account_id_selected = st.selectbox(
+            "銀行帳戶（可選）",
+            options=acc_options,
+            index=0,
+            format_func=lambda k: acc_label_map.get(k, k),
+            key='account_select'
+        )
+
+
         # 備註
         note = col4.text_area(
             "輸入備註 (可選)", height=80,
@@ -769,7 +797,7 @@ def display_record_input(db, user_id):
                 'date': date,
                 'type': record_type,
                 'category': final_category,
-                'amount': float(amount),
+                'amount': float(safe_int(amount)),
                 'note': note.strip() or "無備註",
                 'timestamp': datetime.datetime.now()
             }
