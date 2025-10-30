@@ -1236,31 +1236,53 @@ def display_bank_account_management(db, user_id):
 
 def display_quick_spend_on_dashboard(db, user_id):
     """在儀表板首頁快速支出：對每個銀行帳戶提供即時扣款輸入。"""
+    # ---- 本地安全轉型，避免依賴全域名稱 ----
+    def _safe_float(v, default=0.0):
+        try:
+            return float(v)
+        except Exception:
+            try:
+                return float(str(v).replace(',', '').strip())
+            except Exception:
+                return default
+
+    def _safe_int(v, default=0):
+        try:
+            return int(v)
+        except Exception:
+            try:
+                return int(float(str(v).replace(',', '').strip()))
+            except Exception:
+                return default
+    # ---------------------------------------
+
     st.markdown("### 🏦 直接輸入支出（快速扣款）")
     bank_accounts = load_bank_accounts(db, user_id)  # {account_id: {'name':..., 'balance':...}}
 
-    if not bank_accounts:
+    if not isinstance(bank_accounts, dict) or not bank_accounts:
         st.info("尚未新增任何銀行帳戶。請先到「帳戶管理」新增。")
         return
 
-    cols_header = st.columns([3,2,2,3])
+    cols_header = st.columns([3, 2, 2, 3])
     cols_header[0].markdown("**帳戶名稱**")
     cols_header[1].markdown("**目前餘額**")
     cols_header[2].markdown("**支出金額**")
     cols_header[3].markdown("**備註**")
 
     for acc_id, acc in bank_accounts.items():
-        if not isinstance(acc, dict): 
+        if not isinstance(acc, dict):
             continue
-        name = acc.get('name', '未命名帳戶')
-        balance = safe_float(acc.get('balance', 0))
 
-        c1, c2, c3, c4, c5 = st.columns([3,2,2,3,1])
+        name = acc.get('name', '未命名帳戶')
+        balance = _safe_float(acc.get('balance', 0.0))
+
+        c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 3, 1])
         c1.write(name)
-        c2.write(f"NT$ {safe_int(balance):,}")
+        c2.write(f"NT$ {_safe_int(balance):,}")
 
         spend_key = f"quick_spend_{acc_id}"
         spend_note_key = f"quick_spend_note_{acc_id}"
+
         spend_amt = c3.number_input(
             " ",
             min_value=0, step=100, format="%d",
@@ -1269,14 +1291,14 @@ def display_quick_spend_on_dashboard(db, user_id):
         note = c4.text_input(" ", placeholder="可選：例如 超商小額", key=spend_note_key)
 
         if c5.button("扣款", key=f"do_spend_{acc_id}"):
-            amt = safe_int(spend_amt)
+            amt = _safe_int(spend_amt)
             if amt <= 0:
                 st.warning("請輸入大於 0 的金額。")
-            elif amt > balance:
-                # 仍允許透支：可改成阻擋，這裡給提示後照常扣
+                continue
+
+            if amt > balance:
+                # 可選：如要直接阻擋透支，改成 return / continue
                 st.warning("⚠️ 扣款金額大於目前餘額，將造成負餘額。")
-                # 繼續執行
-                pass
 
             # 1) 新增一筆支出紀錄
             record_data = {
@@ -1284,13 +1306,19 @@ def display_quick_spend_on_dashboard(db, user_id):
                 'type': '支出',
                 'category': '快速扣款',
                 'amount': float(amt),
-                'note': note.strip() or f"{name} 扣款",
+                'note': (note or "").strip() or f"{name} 扣款",
                 'timestamp': datetime.datetime.now(),
             }
             add_record(db, user_id, record_data)
 
             # 2) 更新該帳戶餘額（扣款）
-            bank_accounts[acc_id]['balance'] = safe_float(balance) - float(amt)
+            new_balance = _safe_float(balance) - float(amt)
+            # 保險處理 bank_accounts 結構
+            if acc_id not in bank_accounts or not isinstance(bank_accounts[acc_id], dict):
+                bank_accounts[acc_id] = {'name': name, 'balance': new_balance}
+            else:
+                bank_accounts[acc_id]['balance'] = new_balance
+
             update_bank_accounts(db, user_id, bank_accounts)
 
             st.toast(f"✅ 已從「{name}」扣款 NT$ {amt:,}")
