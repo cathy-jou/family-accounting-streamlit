@@ -773,6 +773,14 @@ def display_record_input(db, user_id):
                 'note': note.strip() or "無備註",
                 'timestamp': datetime.datetime.now()
             }
+            # 若有選擇銀行帳戶，記錄 account_id 與 account_name
+            if account_id_selected and account_id_selected != '__NONE__':
+                record_data['account_id'] = account_id_selected
+                try:
+                    record_data['account_name'] = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
+                except Exception:
+                    record_data['account_name'] = ''
+
             add_record(db, user_id, record_data)
             # 清除快取並重跑以更新儀表板
             st.cache_data.clear() # 清除所有 @st.cache_data
