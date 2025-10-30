@@ -758,10 +758,7 @@ def display_record_input(db, user_id):
         acc_options = ['__NONE__'] + [aid for aid, _, _ in acc_items]
         acc_label_map = {'__NONE__': '（未選擇）'}
         for aid, aname, abal in acc_items:
-            try:
-                disp = f"{aname}｜NT$ {int(float(abal)):,.0f}"
-            except Exception:
-                disp = f"{aname}｜NT$ {abal}"
+            disp = f"{aname}"
             acc_label_map[aid] = disp
 
         account_id_selected = st.selectbox(
