@@ -1332,7 +1332,7 @@ def app():
         # 原本 "儀表板" 的內容
         display_dashboard(db, user_id)
         st.markdown('---')
-        # display_quick_spend_on_dashboard(db, user_id)
+        display_quick_spend_on_dashboard(db, user_id)
 
     # 📌 修正 #3: 將 "新增" 和 "查看" 合併到 tab2
     with tab2:
