@@ -1293,7 +1293,7 @@ def display_quick_entry_on_home(db, user_id):
 
     if save_clicked:
         # 基本驗證
-        passif amount is None or (int(amount) if isinstance(amount, int) else int(float(amount or 0))) <= 0:
+        if amount is None or (int(amount) if isinstance(amount, int) else int(float(amount or 0))) <= 0:
             st.warning("請輸入大於 0 的金額。")
             return
 
