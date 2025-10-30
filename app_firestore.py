@@ -1231,68 +1231,114 @@ def display_bank_account_management(db, user_id):
 # --- 7. 主應用程式框架 (使用 st.tabs) ---
 
 def display_quick_entry_on_home(db, user_id):
-    """在儀表板首頁快速支出：對每個銀行帳戶提供即時扣款輸入。*不顯示任何餘額資訊*"""
-    st.markdown("### 快速記帳")
-    bank_accounts = load_bank_accounts(db, user_id)  # {account_id: {'name':..., 'balance':...}}
+"""首頁的『快速記帳』：預設只顯示置中的按鈕，點擊後展開詳細表單；帳戶改為下拉選單。"""
+# 初始化展開狀態
+if 'show_quick_entry' not in st.session_state:
+    st.session_state.show_quick_entry = False
 
-    if not bank_accounts:
-        st.info("尚未新增任何銀行帳戶。請先到「帳戶管理」新增。")
+st.markdown("### 🧾 快速記帳")
+
+if not st.session_state.show_quick_entry:
+    # 置中顯示按鈕
+    c_left, c_mid, c_right = st.columns([1,2,1])
+    with c_mid:
+        if st.button("🧾 快速記帳", use_container_width=True, key="btn_show_quick_entry"):
+            st.session_state.show_quick_entry = True
+            st.rerun()
+    return
+
+# 展開後顯示輸入表單（非 st.form，避免 submit button 限制）
+try:
+    bank_accounts = load_bank_accounts(db, user_id) or {}
+except Exception:
+    bank_accounts = {}
+
+# 準備帳戶下拉選單（僅顯示名稱，不顯示餘額）
+acc_items = []
+if isinstance(bank_accounts, dict):
+    for _acc_id, _acc in bank_accounts.items():
+        if isinstance(_acc, dict):
+            acc_items.append((_acc_id, _acc.get('name', '未命名帳戶')))
+acc_ids = ['__NONE__'] + [aid for aid, _ in acc_items]
+acc_label_map = {'__NONE__': '（請選擇帳戶）'}
+for aid, aname in acc_items:
+    acc_label_map[aid] = aname or '未命名帳戶'
+
+# 版面：帳戶下拉、金額、備註、動作
+row1 = st.columns([3,2,3,2])
+with row1[0]:
+    account_id_selected = st.selectbox(
+        "銀行帳戶",
+        options=acc_ids,
+        index=0,
+        format_func=lambda k: acc_label_map.get(k, k),
+        key='quick_entry_account_select'
+    )
+with row1[1]:
+    amount = st.number_input("金額（支出）", min_value=0, step=100, format="%d", key='quick_entry_amount')
+with row1[2]:
+    note = st.text_input("備註", placeholder="例：咖啡、小吃、搭車", key='quick_entry_note')
+with row1[3]:
+    save_clicked = st.button("新增", use_container_width=True, key="quick_entry_save")
+    cancel_clicked = st.button("取消", use_container_width=True, key="quick_entry_cancel")
+
+if cancel_clicked:
+    st.session_state.show_quick_entry = False
+    # 清理暫存輸入值（可選）
+    for k in ['quick_entry_account_select','quick_entry_amount','quick_entry_note']:
+        if k in st.session_state: del st.session_state[k]
+    st.rerun()
+
+if save_clicked:
+    # 基本驗證
+    if account_id_selected in (None, '', '__NONE__'):
+        st.warning("請先選擇銀行帳戶。")
+        return
+    if amount is None or (int(amount) if isinstance(amount, int) else int(float(amount or 0))) <= 0:
+        st.warning("請輸入大於 0 的金額。")
         return
 
-    # 只顯示：帳戶名稱｜支出金額｜備註｜扣款
-    cols_header = st.columns([4,3,4])
-    cols_header[0].markdown("**帳戶名稱**")
-    cols_header[1].markdown("**支出金額**")
-    cols_header[2].markdown("**備註**")
+    # 轉型工具
+    get_int = (safe_int if 'safe_int' in globals() else (lambda v: int(float(str(v).replace(',','').strip())) if str(v).strip() else 0))
+    get_float = (safe_float if 'safe_float' in globals() else (lambda v: float(get_int(v))))
+    amt = get_int(amount)
 
-    for acc_id, acc in bank_accounts.items():
-        if not isinstance(acc, dict): 
-            continue
-        name = acc.get('name', '未命名帳戶')
-        # 內部餘額用於保護與計算，不顯示
-        try:
-            balance = safe_float(acc.get('balance', 0))
-        except Exception:
-            balance = 0.0
+    # 取帳戶名稱（不顯示餘額）
+    try:
+        account_name = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
+    except Exception:
+        account_name = ''
 
-        c1, c2, c3, c4 = st.columns([4,3,4,1])
-        c1.write(name)
+    # 新增一筆『支出』紀錄（類別可固定為『快速記帳』）
+    record_data = {
+        'date': datetime.date.today(),
+        'type': '支出',
+        'category': '快速記帳',
+        'amount': float(amt),
+        'note': (note or "").strip() or f"{account_name or '未命名帳戶'} 記帳",
+        'timestamp': datetime.datetime.now(),
+        'account_id': account_id_selected,
+        'account_name': account_name,
+    }
+    add_record(db, user_id, record_data)
 
-        spend_key = f"quick_spend_{acc_id}"
-        spend_note_key = f"quick_spend_note_{acc_id}"
-        spend_amt = c2.number_input(
-            " ",
-            min_value=0, step=100, format="%d",
-            key=spend_key
-        )
-        note = c3.text_input(" ", placeholder="可選：例如 超商小額", key=spend_note_key)
+    # 同步更新該帳戶餘額（支出扣）—不顯示餘額
+    try:
+        ba = bank_accounts if isinstance(bank_accounts, dict) else {}
+        if account_id_selected not in ba or not isinstance(ba[account_id_selected], dict):
+            ba[account_id_selected] = {'name': account_name, 'balance': 0}
+        current_bal = get_float(ba[account_id_selected].get('balance', 0))
+        ba[account_id_selected]['balance'] = current_bal - float(amt)
+        update_bank_accounts(db, user_id, ba)
+    except Exception as _e:
+        st.warning(f"⚠️ 帳戶餘額未能同步更新：{_e}")
 
-        if c4.button("扣款", key=f"do_spend_{acc_id}"):
-            amt = safe_int(spend_amt) if 'safe_int' in globals() else int(spend_amt or 0)
-            if amt <= 0:
-                st.warning("請輸入大於 0 的金額。")
-            else:
-                # 避免洩漏餘額，只給出風險提示
-                if amt > balance:
-                    st.warning("⚠️ 扣款金額可能超過目前餘額。")
-
-                # 1) 新增一筆支出紀錄
-                record_data = {
-                    'date': datetime.date.today(),
-                    'type': '支出',
-                    'category': '快速扣款',
-                    'amount': float(amt),
-                    'note': (note or "").strip() or f"{name} 扣款",
-                    'timestamp': datetime.datetime.now(),
-                }
-                add_record(db, user_id, record_data)
-
-                # 2) 更新該帳戶餘額（不顯示於 UI）
-                bank_accounts[acc_id]['balance'] = safe_float(balance) - float(amt)
-                update_bank_accounts(db, user_id, bank_accounts)
-
-                st.toast(f"✅ 已從「{name}」扣款 NT$ {amt:,}")
-                st.rerun()
+    st.toast(f"✅ 已記帳：{account_name or '未命名帳戶'} NT$ {amt:,}")
+    # 收合表單
+    st.session_state.show_quick_entry = False
+    for k in ['quick_entry_account_select','quick_entry_amount','quick_entry_note']:
+        if k in st.session_state: del st.session_state[k]
+    st.rerun()
 
 
 def app():
