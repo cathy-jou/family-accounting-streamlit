@@ -611,7 +611,7 @@ def display_dashboard(db, user_id):
     current_balance = get_current_balance(db, user_id)
 
     # --- 概覽卡片 ---
-    st.markdown("## 財務概覽")
+    # st.markdown("## 財務概覽")
     total_income = df_records[df_records['type'] == '收入']['amount'].sum() if not df_records.empty else 0
     total_expense = df_records[df_records['type'] == '支出']['amount'].sum() if not df_records.empty else 0
 
@@ -626,7 +626,7 @@ def display_dashboard(db, user_id):
     st.markdown("---", unsafe_allow_html=True) # 分隔線
 
     # --- 數據分析圖表 ---
-    st.markdown("## 數據分析")
+    # st.markdown("## 數據分析")
     if df_records.empty:
         st.info("ℹ️ 尚無交易紀錄可供分析。")
     else:
