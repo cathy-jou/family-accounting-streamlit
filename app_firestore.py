@@ -897,7 +897,7 @@ def display_records_list(db, user_id, df_records):
 
     # --- 篩選器 (保持不變) ---
     # st.markdown("### 篩選紀錄")
-    col1, col2, col3 = st.columns([1, 1, 2])
+    col1, col2, col3, col4 = st.columns([1, 1, 2, 2])
     
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
          st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
@@ -945,7 +945,7 @@ def display_records_list(db, user_id, df_records):
         csv = convert_df_to_csv(df_filtered) 
         file_name_month = selected_month if selected_month else "all"
         if csv:
-            col3.download_button(
+            col4.download_button(
                 label="📥 下載篩選結果 (CSV)",
                 data=csv,
                 file_name=f'交易紀錄_{file_name_month}.csv',
@@ -953,7 +953,7 @@ def display_records_list(db, user_id, df_records):
                 key='download_csv_button'
             )
     else:
-        col3.info("沒有符合篩選條件的紀錄可供下載。")
+        col4.info("沒有符合篩選條件的紀錄可供下載。")
     # st.markdown("---")
 
     # --- 紀錄列表標題 ---
