@@ -354,16 +354,20 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             if col not in df.columns:
                 df[col] = None
 
-        # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
+        # 先統一時區處理：全部視為 UTC → 再去除時區，避免 tz-aware / tz-naive 混用
         df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True).dt.tz_convert(None)
 
-        # 轉換其他類型
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True).dt.tz_convert(None)
+            # 若 date 是 NaT，使用 timestamp 回填
+            mask = df['date'].isna() & df['timestamp'].notna()
+            df.loc[mask, 'date'] = df.loc[mask, 'timestamp']
+
+        # 其他欄位轉型照舊
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
         df['type'] = df['type'].astype(str)
         df['category'] = df['category'].astype(str)
         df['note'] = df['note'].astype(str)
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
         return df
 
