@@ -897,7 +897,7 @@ def display_records_list(db, user_id, df_records):
 
     # --- 篩選器 (保持不變) ---
     # st.markdown("### 篩選紀錄")
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+    col1, col2, col3, col4 = st.columns([2, 2, 3, 2])
     
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
          st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
