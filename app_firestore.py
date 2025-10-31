@@ -915,7 +915,8 @@ def display_records_list(db, user_id, df_records):
              selected_month = None
              st.info("尚無紀錄可供篩選月份。")
         else:
-             selected_month = col1.selectbox("選擇月份", options=all_months, index=0, key='month_selector')
+            #  selected_month = col1.selectbox("選擇月份", options=all_months, index=0, key='month_selector')
+             selected_month = col1.selectbox(options=all_months, index=0, key='month_selector')
     
     type_filter = col2.selectbox("選擇類型", options=['全部', '收入', '支出'], key='type_filter')
     
