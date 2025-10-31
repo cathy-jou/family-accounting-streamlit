@@ -781,7 +781,7 @@ def display_record_input(db, user_id):
             placeholder="例如：晚餐 - 麥當勞"
         )
 
-        submitted = st.form_submit_button("💾 儲存紀錄", use_container_width=True)
+        submitted = st.form_submit_button("➕ 儲存", use_container_width=True)
 
         if submitted:
             final_category = category
@@ -918,7 +918,8 @@ def display_records_list(db, user_id, df_records):
             #  selected_month = col1.selectbox("選擇月份", options=all_months, index=0, key='month_selector')
              selected_month = col1.selectbox("", options=all_months, index=0, key='month_selector')
     
-    type_filter = col2.selectbox("選擇類型", options=['全部', '收入', '支出'], key='type_filter')
+    # type_filter = col2.selectbox("選擇類型", options=['全部', '收入', '支出'], key='type_filter')
+    type_filter = col2.selectbox("", options=['全部', '收入', '支出'], key='type_filter')
     
     df_filtered = df_records.copy()
     if selected_month:
@@ -954,7 +955,7 @@ def display_records_list(db, user_id, df_records):
                 key='download_csv_button'
             )
     else:
-        col4.info("沒有符合篩選條件的紀錄可供下載。")
+        col4.info("無紀錄")
     # st.markdown("---")
 
     # --- 紀錄列表標題 ---
@@ -966,7 +967,7 @@ def display_records_list(db, user_id, df_records):
 
     # --- 顯示篩選後的紀錄 (📌 核心修改) ---
     if df_filtered.empty:
-        st.info("ℹ️ 沒有符合篩選條件的交易紀錄。")
+        st.info("ℹ️ 無符合篩選條件的交易紀錄。")
     else:
         for index, row in df_filtered.iterrows():
             try:
@@ -1066,11 +1067,11 @@ def display_records_list(db, user_id, df_records):
                 
                 if save_clicked:
                     if new_amount is None or safe_int(new_amount) <= 0:
-                        st.warning("⚠️ 金額需為正整數。")
+                        st.warning("⚠️ 金額需為正整數")
                     elif not isinstance(new_date, datetime.date):
-                        st.warning("⚠️ 日期格式不正確。")
+                        st.warning("⚠️ 日期格式不正確")
                     elif not new_category:
-                        st.warning("⚠️ 請選擇或輸入類別。")
+                        st.warning("⚠️ 請選擇/輸入類別")
                     else:
                         new_data = {
                             'date': new_date,
@@ -1125,7 +1126,7 @@ def display_balance_management(db, user_id, current_balance):
     """顯示餘額手動管理區塊"""
     st.markdown("## ⚙️ 手動調整總餘額")
     st.info(f"**目前系統計算的總餘額:** NT$ **{current_balance:,.0f}**")
-    st.warning("⚠️ **注意：** 手動設定的餘額會覆蓋由交易紀錄計算得出的餘額。請僅在需要校準初始值或修正錯誤時使用。")
+    st.warning("⚠️ **注意：** 請僅在需要校準初始值或修正錯誤時使用")
 
     with st.expander("點擊展開以手動設定餘額", expanded=False): # 預設不展開
         with st.form("set_balance_form"):
@@ -1137,13 +1138,13 @@ def display_balance_management(db, user_id, current_balance):
                 step=1000,
                 format="%d",
                 key='new_balance_input',
-                help="輸入您希望強制設定的總餘額數值"
+                help="輸入強制設定的總餘額"
             )
 
             # 加入空行增加間距
             st.markdown("<br>", unsafe_allow_html=True)
 
-            submitted = st.form_submit_button("💰 確認更新餘額", use_container_width=True)
+            submitted = st.form_submit_button("確認更新餘額", use_container_width=True)
 
             if submitted:
                 set_balance(db, user_id, float(new_balance_input))
