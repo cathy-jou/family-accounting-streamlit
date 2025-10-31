@@ -697,7 +697,7 @@ def display_dashboard(db, user_id):
 
 def display_record_input(db, user_id):
     """顯示新增交易紀錄的表單"""
-    st.markdown("## 新增交易紀錄")
+    st.markdown("## 新增交易")
 
     # 將類型選擇移到 Form 外部，以便觸發類別更新
     record_type = st.radio(
@@ -889,14 +889,14 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 def display_records_list(db, user_id, df_records):
     """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入編輯功能)"""
-    st.markdown("## 📜 交易紀錄")
+    st.markdown("## 歷史紀錄")
 
     if df_records is None or df_records.empty:
         st.info("ℹ️ 目前沒有任何交易紀錄。")
         return
 
     # --- 篩選器 (保持不變) ---
-    st.markdown("### 篩選紀錄")
+    # st.markdown("### 篩選紀錄")
     col1, col2, col3 = st.columns([1, 1, 2])
     
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
@@ -954,10 +954,10 @@ def display_records_list(db, user_id, df_records):
             )
     else:
         col3.info("沒有符合篩選條件的紀錄可供下載。")
-    st.markdown("---")
+    # st.markdown("---")
 
     # --- 紀錄列表標題 ---
-    st.markdown("### 紀錄明細")
+    # st.markdown("### 紀錄明細")
     header_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
     headers = ['日期', '類別', '金額', '類型', '備註', '操作']
     for col, header in zip(header_cols, headers):
@@ -1376,7 +1376,7 @@ def app():
     # --- 頁面內容渲染 (使用 st.tabs) ---
     
     # 📌 修正 #1: 將 "交易紀錄" 移除，只保留 4 個頁籤
-    tab_list = ["儀表板", "新增紀錄", "帳戶管理", "設定餘額"]
+    tab_list = ["首頁", "記帳管理", "帳戶管理", "其他設定"]
     
     # 📌 修正 #2: 只解構 4 個 tab 變數
     tab1, tab2, tab3, tab4 = st.tabs(tab_list)
