@@ -306,20 +306,20 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             doc_data['id'] = doc.id
             
             # --- 1. 解析 Timestamp (建立時間) ---
-parsed_timestamp = None # 預設值
-if 'timestamp' in doc_data and hasattr(doc_data['timestamp'], 'to_pydatetime'):
-    parsed_timestamp = doc_data['timestamp'].to_pydatetime()
-    doc_data['timestamp'] = parsed_timestamp # 儲存 datetime 物件
-elif isinstance(doc_data.get('timestamp'), datetime.datetime):
-    parsed_timestamp = doc_data['timestamp']  # 已是 datetime 物件
-else:
-    doc_data['timestamp'] = None # 如果無效則存 None
+            parsed_timestamp = None # 預設值
+            if 'timestamp' in doc_data and hasattr(doc_data['timestamp'], 'to_pydatetime'):
+                parsed_timestamp = doc_data['timestamp'].to_pydatetime()
+                doc_data['timestamp'] = parsed_timestamp # 儲存 datetime 物件
+            elif isinstance(doc_data.get('timestamp'), datetime.datetime):
+                parsed_timestamp = doc_data['timestamp']  # 已是 datetime 物件
+            else:
+                doc_data['timestamp'] = None # 如果無效則存 None
 
             # --- 2. 解析 Date (交易日期) ---
             parsed_date = None # 預設值
             if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
-                 # 正常情況： date 是一個 Firestore Timestamp (如 image_502835.png)
-                 parsed_date = doc_data['date'].to_pydatetime().date()
+                # 正常情況： date 是一個 Firestore Timestamp (如 image_502835.png)
+                parsed_date = doc_data['date'].to_pydatetime().date()
             elif isinstance(doc_data.get('date'), str): 
                 # 舊格式情況： date 是一個字串
                 try:
