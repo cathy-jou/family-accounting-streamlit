@@ -310,14 +310,16 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             if 'timestamp' in doc_data and hasattr(doc_data['timestamp'], 'to_pydatetime'):
                 parsed_timestamp = doc_data['timestamp'].to_pydatetime()
                 doc_data['timestamp'] = parsed_timestamp # 儲存 datetime 物件
+            elif isinstance(doc_data.get('timestamp'), datetime.datetime):
+                parsed_timestamp = doc_data['timestamp']  # 已是 datetime 物件
             else:
                 doc_data['timestamp'] = None # 如果無效則存 None
 
             # --- 2. 解析 Date (交易日期) ---
             parsed_date = None # 預設值
             if 'date' in doc_data and hasattr(doc_data['date'], 'to_pydatetime'):
-                 # 正常情況： date 是一個 Firestore Timestamp (如 image_502835.png)
-                 parsed_date = doc_data['date'].to_pydatetime().date()
+                # 正常情況： date 是一個 Firestore Timestamp (如 image_502835.png)
+                parsed_date = doc_data['date'].to_pydatetime().date()
             elif isinstance(doc_data.get('date'), str): 
                 # 舊格式情況： date 是一個字串
                 try:
@@ -354,16 +356,20 @@ def get_all_records(db: firestore.Client, user_id: str) -> pd.DataFrame:
             if col not in df.columns:
                 df[col] = None
 
-        # 確保 'date' 欄位是日期時間類型，並處理可能的錯誤
-        df['date'] = pd.to_datetime(df['date'], errors='coerce') 
+        # 先統一時區處理：全部視為 UTC → 再去除時區，避免 tz-aware / tz-naive 混用
+        df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True).dt.tz_convert(None)
 
-        # 轉換其他類型
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True).dt.tz_convert(None)
+            # 若 date 是 NaT，使用 timestamp 回填
+            mask = df['date'].isna() & df['timestamp'].notna()
+            df.loc[mask, 'date'] = df.loc[mask, 'timestamp']
+
+        # 其他欄位轉型照舊
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
         df['type'] = df['type'].astype(str)
         df['category'] = df['category'].astype(str)
         df['note'] = df['note'].astype(str)
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
         return df
 
@@ -1085,7 +1091,8 @@ def display_records_list(db, user_id, df_records):
                     record_date_str = f"日期錯誤 (ID: {record_id_str})"
                 else:
                     try:
-                         record_date_str = record_date_obj.strftime('%Y-%m-%d')
+                        #  record_date_str = record_date_obj.strftime('%Y-%m-%d')
+                         record_date_str = safe_date(record_date_obj).strftime('%Y-%m-%d')
                     except Exception:
                          record_date_str = str(record_date_obj).split(' ')[0]
 
