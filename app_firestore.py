@@ -5,7 +5,6 @@ import altair as alt
 from google.cloud import firestore
 import uuid # 雖然不再生成，但保留 import 以防未來需要
 import os # 導入 os 庫用於環境變數檢查
-from firebase import get_records
 
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa"
@@ -17,7 +16,7 @@ BANK_ACCOUNTS_COLLECTION_NAME = "bank_accounts" # 銀行帳戶 Collection 名稱
 # 定義交易類別
 CATEGORIES = {
     '收入': ['薪資', '投資收益', '禮金', '其他收入'],
-    '支出': ['餐飲', '交通', '購物', '娛樂', '房租/貸款', '教育', '醫療', '其他支出']
+    '支出': ['食', '衣', '住', '行', '育樂', '教育', '醫療', '其他支出']
 }
 
 # --- 1. Streamlit 介面設定 ---
@@ -227,6 +226,25 @@ def get_bank_accounts_ref(db: firestore.Client, user_id: str):
     """獲取用戶銀行帳戶列表的 Document 參考"""
     # 將銀行帳戶存在 users/{user_id}/account_status/bank_accounts 文件中
     return db.collection('users').document(user_id).collection(BALANCE_COLLECTION_NAME).document(BANK_ACCOUNTS_COLLECTION_NAME)
+
+def get_records(db, user_id):
+    """讀取某使用者所有交易紀錄"""
+    try:
+        col_ref = get_record_ref(db, user_id)
+        docs = col_ref.stream()
+        records = []
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            records.append(data)
+        return records
+    except Exception as e:
+        print("get_records error:", e)
+        return []
+    
+def add_record(db, user_id, data):
+    ref = get_record_ref(db, user_id)
+    ref.add(data)
 
 
 # --- 4. 數據操作函數 ---
