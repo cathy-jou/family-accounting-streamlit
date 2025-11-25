@@ -771,7 +771,7 @@ def display_record_input(db, user_id):
         note = st.text_area("備註", key="note_input")
 
         # 帳戶選單（如果你有 accounts 設計）
-        accounts = get_accounts(db, user_id)  # 若沒有帳戶功能，可移除
+        accounts = load_bank_accounts(db, user_id)  # 若沒有帳戶功能，可移除
         account_options = ["未指定"] + [a["name"] for a in accounts]
         account_name = st.selectbox("帳戶", account_options, key="account_selector")
 
