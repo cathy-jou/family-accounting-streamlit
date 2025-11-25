@@ -5,6 +5,7 @@ import altair as alt
 from google.cloud import firestore
 import uuid # 雖然不再生成，但保留 import 以防未來需要
 import os # 導入 os 庫用於環境變數檢查
+from firebase import get_records
 
 # --- 0. 配置與變數 ---
 DEFAULT_BG_COLOR = "#f8f9fa"
@@ -695,10 +696,8 @@ def display_dashboard(db, user_id):
         else:
             st.info("ℹ️ 尚無支出紀錄可繪製分佈圖。")
 
+
 def display_record_input(db, user_id):
-    import streamlit as st
-    import pandas as pd
-    import datetime
 
     st.subheader("新增記帳紀錄")
 
