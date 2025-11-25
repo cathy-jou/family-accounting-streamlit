@@ -716,34 +716,100 @@ def display_dashboard(db, user_id):
 
 
 def display_record_input(db, user_id):
-    st.subheader("新增紀錄")
 
-    # --- 1. 選擇或新增使用者 ---
-    st.write("### 使用者管理")
-    col_user1, col_user2 = st.columns([2, 1])
+    st.subheader("新增記帳紀錄")
 
-    with col_user1:
-        all_users = get_all_users(db)
-        user_names = [u["name"] for u in all_users]
-        selected_user_name = st.selectbox("選擇使用者", options=user_names)
+    # --- 左右兩欄（避免文字 + 選單換行） ---
+    col1, col2 = st.columns([1, 1])
 
-    with col_user2:
-        if st.button("新增使用者"):
-            new_name = st.text_input("輸入新使用者名稱", key="new_user_name_input")
-            if new_name:
-                create_new_user(db, new_name)
-                st.success(f"新增使用者成功：{new_name}")
-                st.experimental_rerun()
+    # ------------------------------------------------------------
+    #  讀取歷史紀錄 → 用來取得所有月份清單
+    # ------------------------------------------------------------
+    records = get_records(db, user_id)
+    df_records = pd.DataFrame(records) if records else pd.DataFrame()
 
-    # 載入目前使用者
-    user_id = get_user_id_by_name(db, selected_user_name)
+    # --- 檢查是否有 date 欄位 ---
+    if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
+        st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
+        all_months = []
+        selected_month = None
+    else:
+        date_series = df_records['date'].dropna()
 
-    st.divider()
+        if not date_series.empty:
+            df_copy = df_records.copy()
+            df_copy['month_year_period'] = df_copy['date'].dt.to_period('M')
+            all_months = sorted(df_copy['month_year_period'].dropna().unique().astype(str), reverse=True)
+        else:
+            all_months = []
 
-    # --- 2. 記帳輸入區 ---
-    st.write("### 新增記帳")
+        if not all_months:
+            selected_month = None
+            st.info("尚無紀錄可供篩選月份。")
+        else:
+            # 頁面左側：月份選項
+            selected_month = col1.selectbox(
+                "選擇月份",
+                options=all_months,
+                index=0,
+                key='month_selector'
+            )
 
-    col_date, col_type = st.c
+    # ------------------------------------------------------------
+    # 右側欄位：支出 / 收入 選項
+    # ------------------------------------------------------------
+    type_filter = col2.selectbox("類型", ["支出", "收入"], key="type_filter")
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------
+    # 新增記帳表單
+    # ------------------------------------------------------------
+    with st.form("add_record_form"):
+        amt = st.text_input("金額", key="amount_input")
+        category = st.text_input("分類（可自行輸入）", key="category_input")
+        note = st.text_area("備註", key="note_input")
+
+        # 帳戶選單（如果你有 accounts 設計）
+        accounts = load_bank_accounts(db, user_id)  # 若沒有帳戶功能，可移除
+        account_options = ["未指定"] + [a["name"] for a in accounts]
+        account_name = st.selectbox("帳戶", account_options, key="account_selector")
+
+        save_clicked = st.form_submit_button("新增紀錄")
+
+    # ------------------------------------------------------------
+    # 按下新增
+    # ------------------------------------------------------------
+    if save_clicked:
+        # ===== 金額格式檢查 =====
+        try:
+            amount_value = float(amt)
+            if amount_value <= 0:
+                st.warning("請輸入大於 0 的金額。")
+                return
+        except:
+            st.warning("金額格式錯誤，請輸入數字。")
+            return
+
+        # ===== 組合寫入資料 =====
+        record_data = {
+            'date': datetime.date.today(),
+            'type': type_filter,
+            'category': category.strip() if category else "未分類",
+            'amount': amount_value,
+            'note': (note or "").strip() or f"{account_name} 記帳",
+            'timestamp': datetime.datetime.now(),
+        }
+
+        # ===== 若有帳戶，補寫入資訊 =====
+        if account_name != "未指定":
+            record_data['account_name'] = account_name
+
+        # ===== 寫入 Firebase =====
+        add_record(db, user_id, record_data)
+        st.success("已新增記帳紀錄！")
+        st.balloons()
+
 
 
 @st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存類別列表 5 分鐘
