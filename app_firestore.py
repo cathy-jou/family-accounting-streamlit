@@ -862,14 +862,19 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
         return []
 
 
-def display_records_list(db, user_id):
-    """顯示、修改與刪除交易紀錄 (已修改：新增支付方式編輯)"""
-    st.markdown("### 📝 歷史紀錄 (最近 50 筆)")
+def display_records_list(db, user_id, df_records=None):
+    """顯示、修改與刪除交易紀錄 (修正：語法錯誤與參數對應)"""
+    st.markdown("### 📝 歷史紀錄")
 
-    # 1. 取得資料
-    records = get_records(db, user_id, limit=50)
+    # 1. 處理資料來源：將 DataFrame 轉為字典列表以便迭代
+    if df_records is None or df_records.empty:
+        st.info("目前沒有交易紀錄。")
+        return
+
+    # 將 DataFrame 轉換為 list of dicts，並只取前 50 筆 (假設 DataFrame 已按時間排序)
+    records = df_records.head(50).to_dict('records')
     
-    # --- 🔴 修改開始：預先載入支付方式選項 ---
+    # 2. 預先載入支付方式選項
     try:
         bank_accounts = load_bank_accounts(db, user_id)
     except:
@@ -881,15 +886,12 @@ def display_records_list(db, user_id):
     existing_names = list(name_to_id.keys())
     # 選項列表
     payment_options = default_methods + sorted([n for n in existing_names if n not in default_methods])
-    # --- 🔴 修改結束 ---
-
-    if not records:
-        st.info("目前沒有交易紀錄。")
-        return
 
     for rec in records:
-        # 使用 expander 顯示每一筆紀錄，標題顯示摘要
-        rec_label = f"{rec['date']} - {rec['category']} : NT$ {int(rec['amount']):,}"
+        # 使用 expander 顯示每一筆紀錄
+        # 注意：DataFrame 轉出的 date 可能是 Timestamp，需轉為字串顯示
+        rec_date_str = str(rec['date']).split(' ')[0]
+        rec_label = f"{rec_date_str} - {rec['category']} : NT$ {int(rec['amount']):,}"
         if rec.get('account_name'):
             rec_label += f" ({rec['account_name']})"
 
@@ -897,24 +899,34 @@ def display_records_list(db, user_id):
             with st.form(key=f"edit_form_{rec['id']}"):
                 col1, col2 = st.columns(2)
                 
-                # 日期與金額
-                new_date = col1.date_input("日期", value=pd.to_datetime(rec['date']).date())
+                # 日期處理 (轉為 date 物件)
+                try:
+                    current_date_val = pd.to_datetime(rec['date']).date()
+                except:
+                    current_date_val = datetime.date.today()
+
+                new_date = col1.date_input("日期", value=current_date_val)
                 new_amount = col2.number_input("金額", min_value=1, value=int(rec['amount']), step=1)
                 
                 col3, col4 = st.columns(2)
                 # 類別
-                current_cat_index = 0
-                # 簡單判斷類別屬於收入還是支出以提供選單 (這裡簡化處理，直接顯示該紀錄類別)
-                # 若要完整功能可再擴充，這裡以保留原值為主，並允許改為同類型的
-                cat_options = [rec['category']] + CATEGORIES.get(rec['type'], [])
-                cat_options = sorted(list(set(cat_options))) # 去重
-                new_category = col3.selectbox("類別", options=cat_options, index=cat_options.index(rec['category']))
+                current_cat = rec['category'] if rec['category'] else "其他"
+                # 嘗試判斷類別列表
+                cat_options = [current_cat] + CATEGORIES.get(rec['type'], [])
+                cat_options = sorted(list(set(cat_options)))
                 
-                # --- 🔴 修改開始：新增「支付方式」欄位 ---
+                # 確保 current_cat 在選項中
+                cat_index = 0
+                if current_cat in cat_options:
+                    cat_index = cat_options.index(current_cat)
+
+                new_category = col3.selectbox("類別", options=cat_options, index=cat_index)
+                
+                # --- 修正重點：支付方式與重複 index 參數移除 ---
                 current_acc_name = rec.get('account_name')
                 current_acc_index = None
                 
-                # 確保原紀錄的帳戶名稱有在選項中，避免報錯
+                # 確保原紀錄的帳戶名稱有在選項中
                 current_options = list(payment_options)
                 if current_acc_name and current_acc_name not in current_options:
                     current_options.append(current_acc_name)
@@ -922,67 +934,52 @@ def display_records_list(db, user_id):
                 if current_acc_name in current_options:
                     current_acc_index = current_options.index(current_acc_name)
 
+                # 🔴 修正處：移除重複的 index 參數
                 new_payment_method = col4.selectbox(
                     "支付方式", 
                     options=current_options, 
-                    index=current_acc_index,
+                    index=current_acc_index, # 這裡正確保留一個 index 即可
                     placeholder="選填...",
-                    index=current_acc_index if current_acc_index is not None else None,
                     key=f"pay_select_{rec['id']}"
                 )
-                # --- 🔴 修改結束 ---
 
-                new_note = st.text_area("備註", value=rec['note'], height=60)
+                new_note = st.text_area("備註", value=str(rec['note']) if rec['note'] else "", height=60)
 
                 c_update, c_delete = st.columns([1, 1])
                 with c_update:
                     update_submitted = st.form_submit_button("💾 更新紀錄", use_container_width=True)
-                
-                # 刪除需獨立處理，因為不能在 form 裡直接做非 form 的動作太複雜，
-                # 這裡保留原邏輯，但刪除按鈕會觸發 rerun
-                
-            # 刪除按鈕 (放在 form 外或獨立處理，這邊配合原始架構放在 form 內但用 session state 標記)
-            # 為了最小更動，我們保留原樣，只處理 Update 邏輯
+            
+            # Form 結束
 
             if update_submitted:
-                # 準備更新資料
                 update_data = {
-                    'date': str(new_date), # Firestore 存字串或 datetime 需注意，這裡維持原格式
+                    'date': str(new_date),
                     'amount': float(new_amount),
                     'category': new_category,
                     'note': new_note
                 }
                 
-                # --- 🔴 修改開始：處理支付方式 ID 更新 ---
+                # 處理支付方式 ID 更新
                 if new_payment_method:
-                    # 查找 ID，若無則視為新 ID (這裡簡化，直接建立 UUID 確保資料完整)
                     acc_id = name_to_id.get(new_payment_method)
                     if not acc_id:
                         acc_id = str(uuid.uuid4())
-                    
                     update_data['account_name'] = new_payment_method
                     update_data['account_id'] = acc_id
                 else:
-                    # 如果使用者清除了支付方式
+                    # 清除支付方式
                     update_data['account_name'] = firestore.DELETE_FIELD
                     update_data['account_id'] = firestore.DELETE_FIELD
-                # --- 🔴 修改結束 ---
 
-                # 執行更新
-                doc_ref = db.collection('users').document(user_id).collection(RECORD_COLLECTION_NAME).document(rec['id'])
-                doc_ref.update(update_data)
-                
-                st.success("✅ 紀錄已更新")
-                st.cache_data.clear()
-                # 稍微延遲讓使用者看到訊息
-                import time
-                time.sleep(0.5)
+                # 呼叫更新函式 (使用 update_record 以正確計算餘額回滾)
+                # 需傳入舊資料以便計算差額
+                update_record(db, user_id, rec['id'], update_data, rec)
                 st.rerun()
 
-            # 刪除邏輯 (獨立於 form_submit_button，使用獨立的 key)
+            # 刪除按鈕 (獨立於 form)
             if st.button("🗑️ 刪除紀錄", key=f"del_btn_{rec['id']}"):
-                 delete_record(db, user_id, rec['id'], rec)
-                 st.rerun()
+                 delete_record(db, user_id, rec['id'], rec['type'], rec['amount'])
+                 
 # 📌 表單在這裡結束
 
             else:
