@@ -696,180 +696,104 @@ def display_dashboard(db, user_id):
             st.info("ℹ️ 尚無支出紀錄可繪製分佈圖。")
 
 def display_record_input(db, user_id):
-    """顯示新增交易紀錄的表單"""
-    st.markdown("## 新增交易")
+    import streamlit as st
+    import pandas as pd
+    import datetime
 
-    # 將類型選擇移到 Form 外部，以便觸發類別更新
-    record_type = st.radio(
-        "選擇類型",
-        options=['支出', '收入'],
-        horizontal=True,
-        key='record_type_selector', # 給定 key 避免狀態混亂
-        help="選擇交易是收入還是支出"
-    )
+    st.subheader("新增記帳紀錄")
 
-    with st.form("new_record_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+    # --- 左右兩欄（避免文字 + 選單換行） ---
+    col1, col2 = st.columns([1, 1])
 
-        # 類別 (根據外部的 record_type 動態更新)
-        category_options = CATEGORIES.get(record_type, [])
-        # 新增自訂選項
-        if record_type == '支出':
-            all_db_categories = get_all_categories(db, user_id)
-            # 合併預設和資料庫中的類別，去重並排序
-            unique_categories = sorted(list(set(category_options + all_db_categories)))
-            category_options = unique_categories + ["⚙️ 新增自訂支出類別..."]
-        elif record_type == '收入':
-             category_options = CATEGORIES.get('收入', []) # 收入類別固定
+    # ------------------------------------------------------------
+    #  讀取歷史紀錄 → 用來取得所有月份清單
+    # ------------------------------------------------------------
+    records = get_records(db, user_id)
+    df_records = pd.DataFrame(records) if records else pd.DataFrame()
 
-        category = col1.selectbox(
-            "選擇類別",
-            options=category_options,
-            key=f'category_select_{record_type}', # 使用類型作為 key
-            help="選擇交易的細分類別，或新增自訂類別"
-        )
+    # --- 檢查是否有 date 欄位 ---
+    if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
+        st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
+        all_months = []
+        selected_month = None
+    else:
+        date_series = df_records['date'].dropna()
 
-        # 如果選擇自訂，則顯示輸入框
-        custom_category = ""
-        if category == "⚙️ 新增自訂支出類別...":
-            custom_category = col1.text_input("輸入新類別名稱", key='custom_category_input', placeholder="例如：寵物用品")
+        if not date_series.empty:
+            df_copy = df_records.copy()
+            df_copy['month_year_period'] = df_copy['date'].dt.to_period('M')
+            all_months = sorted(df_copy['month_year_period'].dropna().unique().astype(str), reverse=True)
+        else:
+            all_months = []
 
-        # 金額
-        amount = col2.number_input(
-            "輸入金額 (NTD)",
-            min_value=1, value=100, step=1, format="%d",
-            key='amount_input',
-            placeholder="請輸入正整數金額"
-        )
+        if not all_months:
+            selected_month = None
+            st.info("尚無紀錄可供篩選月份。")
+        else:
+            # 頁面左側：月份選項
+            selected_month = col1.selectbox(
+                "選擇月份",
+                options=all_months,
+                index=0,
+                key='month_selector'
+            )
 
-        col3, col4 = st.columns(2)
-        # 日期
-        date = col3.date_input(
-            "選擇日期", datetime.date.today(), max_value=datetime.date.today(),
-            key='date_input'
-        )
+    # ------------------------------------------------------------
+    # 右側欄位：支出 / 收入 選項
+    # ------------------------------------------------------------
+    type_filter = col2.selectbox("類型", ["支出", "收入"], key="type_filter")
 
-        # 銀行帳戶（可選）
+    st.markdown("---")
+
+    # ------------------------------------------------------------
+    # 新增記帳表單
+    # ------------------------------------------------------------
+    with st.form("add_record_form"):
+        amt = st.text_input("金額", key="amount_input")
+        category = st.text_input("分類（可自行輸入）", key="category_input")
+        note = st.text_area("備註", key="note_input")
+
+        # 帳戶選單（如果你有 accounts 設計）
+        accounts = get_accounts(db, user_id)  # 若沒有帳戶功能，可移除
+        account_options = ["未指定"] + [a["name"] for a in accounts]
+        account_name = st.selectbox("帳戶", account_options, key="account_selector")
+
+        save_clicked = st.form_submit_button("新增紀錄")
+
+    # ------------------------------------------------------------
+    # 按下新增
+    # ------------------------------------------------------------
+    if save_clicked:
+        # ===== 金額格式檢查 =====
         try:
-            bank_accounts = load_bank_accounts(db, user_id)
-        except Exception:
-            bank_accounts = {}
-        acc_items = []
-        if isinstance(bank_accounts, dict):
-            for _acc_id, _acc in bank_accounts.items():
-                if isinstance(_acc, dict):
-                    acc_items.append((_acc_id, _acc.get('name', '未命名帳戶'), _acc.get('balance', 0)))
-        acc_options = ['__NONE__'] + [aid for aid, _, _ in acc_items]
-        acc_label_map = {'__NONE__': '（未選擇）'}
-        for aid, aname, abal in acc_items:
-            disp = f"{aname}"
-            acc_label_map[aid] = disp
+            amount_value = float(amt)
+            if amount_value <= 0:
+                st.warning("請輸入大於 0 的金額。")
+                return
+        except:
+            st.warning("金額格式錯誤，請輸入數字。")
+            return
 
-        account_id_selected = st.selectbox(
-            "銀行帳戶（可選）",
-            options=acc_options,
-            index=0,
-            format_func=lambda k: acc_label_map.get(k, k),
-            key='account_select'
-        )
+        # ===== 組合寫入資料 =====
+        record_data = {
+            'date': datetime.date.today(),
+            'type': type_filter,
+            'category': category.strip() if category else "未分類",
+            'amount': amount_value,
+            'note': (note or "").strip() or f"{account_name} 記帳",
+            'timestamp': datetime.datetime.now(),
+        }
+
+        # ===== 若有帳戶，補寫入資訊 =====
+        if account_name != "未指定":
+            record_data['account_name'] = account_name
+
+        # ===== 寫入 Firebase =====
+        add_record(db, user_id, record_data)
+        st.success("已新增記帳紀錄！")
+        st.balloons()
 
 
-        # 備註
-        note = col4.text_area(
-            "輸入備註 (可選)", height=80,
-            key='note_input',
-            placeholder="例如：晚餐 - 麥當勞"
-        )
-
-        submitted = st.form_submit_button("➕ 儲存", use_container_width=True)
-
-        if submitted:
-            final_category = category
-            if category == "⚙️ 新增自訂支出類別...":
-                if not custom_category.strip():
-                    st.warning("⚠️ 請輸入自訂類別的名稱。")
-                    st.stop() # 阻止提交
-                final_category = custom_category.strip()
-            elif not category:
-                 st.warning("⚠️ 請選擇一個類別。")
-                 st.stop() # 阻止提交
-
-            record_data = {
-                'date': date,
-                'type': record_type,
-                'category': final_category,
-                'amount': float(safe_int(amount)),
-                'note': note.strip() or "無備註",
-                'timestamp': datetime.datetime.now()
-            }
-            # 若有選擇銀行帳戶：附加 account_id/name
-            if account_id_selected and account_id_selected != '__NONE__':
-                record_data['account_id'] = account_id_selected
-                try:
-                    record_data['account_name'] = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
-                except Exception:
-                    record_data['account_name'] = ''
-
-            # 若有選擇銀行帳戶，記錄 account_id 與 account_name
-            if account_id_selected and account_id_selected != '__NONE__':
-                record_data['account_id'] = account_id_selected
-                try:
-                    record_data['account_name'] = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
-                except Exception:
-                    record_data['account_name'] = ''
-
-            add_record(db, user_id, record_data)
-            # 若綁定帳戶，依收入/支出自動調整帳戶餘額
-            if 'account_id_selected' in locals() and account_id_selected and account_id_selected != '__NONE__':
-                try:
-                    ba = load_bank_accounts(db, user_id) or {}
-                    if isinstance(ba, dict):
-                        if account_id_selected not in ba or not isinstance(ba[account_id_selected], dict):
-                            ba[account_id_selected] = {'name': record_data.get('account_name',''), 'balance': 0}
-                        current_bal = safe_float(ba[account_id_selected].get('balance', 0))
-                        delta = float(safe_int(amount)) * (-1.0 if record_type == '支出' else 1.0)
-                        ba[account_id_selected]['balance'] = current_bal + delta
-                        update_bank_accounts(db, user_id, ba)
-                except Exception as _e:
-                    st.warning(f"⚠️ 帳戶餘額未能同步更新：{_e}")
-
-            # 若選擇了銀行帳戶，依收支類型即時調整該帳戶餘額
-            try:
-                if account_id_selected and account_id_selected != '__NONE__':
-                    _accounts = load_bank_accounts(db, user_id) or {}
-                    if not isinstance(_accounts, dict):
-                        _accounts = {}
-                    _acc = _accounts.get(account_id_selected, {})
-                    _bal = _acc.get('balance', 0)
-                    try:
-                        _bal = float(_bal)
-                    except Exception:
-                        try:
-                            _bal = float(str(_bal).replace(',', '').strip())
-                        except Exception:
-                            _bal = 0.0
-
-                    _amt = float(safe_int(amount))
-                    if record_type == '支出':
-                        _new_bal = _bal - _amt
-                    else:  # '收入'
-                        _new_bal = _bal + _amt
-
-                    # 寫回
-                    if account_id_selected not in _accounts or not isinstance(_accounts[account_id_selected], dict):
-                        _accounts[account_id_selected] = {'name': record_data.get('account_name',''), 'balance': _new_bal}
-                    else:
-                        _accounts[account_id_selected]['balance'] = _new_bal
-
-                    update_bank_accounts(db, user_id, _accounts)
-                    st.toast(f"🏦 已更新「{record_data.get('account_name','選定帳戶')}」餘額：NT$ {int(_new_bal):,}")
-            except Exception as _e:
-                st.warning(f"更新帳戶餘額時發生問題：{_e}")
-
-            # 清除快取並重跑以更新儀表板
-            st.cache_data.clear() # 清除所有 @st.cache_data
-            st.cache_resource.clear() # 清除所有 @st.cache_resource (包括 DB 連線，下次自動重連)
-            st.rerun()
 
 @st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存類別列表 5 分鐘
 def get_all_categories(db: firestore.Client, user_id: str) -> list:
