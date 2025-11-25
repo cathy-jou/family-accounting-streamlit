@@ -704,7 +704,7 @@ def display_record_input(db, user_id):
         "選擇類型",
         options=['支出', '收入'],
         horizontal=True,
-        key='record_type_selector', # 給定 key 避免狀態混亂
+        key='record_type_selector',
         help="選擇交易是收入還是支出"
     )
 
@@ -713,23 +713,20 @@ def display_record_input(db, user_id):
 
         # 類別 (根據外部的 record_type 動態更新)
         category_options = CATEGORIES.get(record_type, [])
-        # 新增自訂選項
         if record_type == '支出':
             all_db_categories = get_all_categories(db, user_id)
-            # 合併預設和資料庫中的類別，去重並排序
             unique_categories = sorted(list(set(category_options + all_db_categories)))
             category_options = unique_categories + ["⚙️ 新增自訂支出類別..."]
         elif record_type == '收入':
-             category_options = CATEGORIES.get('收入', []) # 收入類別固定
+             category_options = CATEGORIES.get('收入', [])
 
         category = col1.selectbox(
             "選擇類別",
             options=category_options,
-            key=f'category_select_{record_type}', # 使用類型作為 key
+            key=f'category_select_{record_type}',
             help="選擇交易的細分類別，或新增自訂類別"
         )
 
-        # 如果選擇自訂，則顯示輸入框
         custom_category = ""
         if category == "⚙️ 新增自訂支出類別...":
             custom_category = col1.text_input("輸入新類別名稱", key='custom_category_input', placeholder="例如：寵物用品")
@@ -749,37 +746,46 @@ def display_record_input(db, user_id):
             key='date_input'
         )
 
-        # 銀行帳戶（可選）
+        # --- 🔴 修改開始：將「銀行帳戶」改為「支付方式」 ---
         try:
             bank_accounts = load_bank_accounts(db, user_id)
         except Exception:
             bank_accounts = {}
-        acc_items = []
-        if isinstance(bank_accounts, dict):
-            for _acc_id, _acc in bank_accounts.items():
-                if isinstance(_acc, dict):
-                    acc_items.append((_acc_id, _acc.get('name', '未命名帳戶'), _acc.get('balance', 0)))
-        acc_options = ['__NONE__'] + [aid for aid, _, _ in acc_items]
-        acc_label_map = {'__NONE__': '（未選擇）'}
-        for aid, aname, abal in acc_items:
-            disp = f"{aname}"
-            acc_label_map[aid] = disp
 
-        account_id_selected = st.selectbox(
-            "銀行帳戶（可選）",
-            options=acc_options,
+        # 1. 建立 名稱 -> ID 的對照表 (方便查找)
+        name_to_id = {}
+        if isinstance(bank_accounts, dict):
+            for aid, data in bank_accounts.items():
+                if isinstance(data, dict):
+                    name_to_id[data.get('name')] = aid
+
+        # 2. 準備選項：預設選項 + 資料庫現有帳戶 + 自訂
+        default_methods = ['現金', '信用卡', '悠遊卡']
+        existing_names = list(name_to_id.keys())
+        # 過濾掉已經在 default_methods 中的名稱以避免重複，並排序其他帳戶
+        other_accounts = sorted([n for n in existing_names if n not in default_methods])
+        
+        display_options = ['（未選擇）'] + default_methods + other_accounts + ['⚙️ 新增自訂...']
+
+        payment_method = st.selectbox(
+            "支付方式",
+            options=display_options,
             index=0,
-            format_func=lambda k: acc_label_map.get(k, k),
-            key='account_select'
+            key='payment_method_select',
+            help="選擇付款方式（將自動更新對應帳戶餘額）"
         )
 
+        custom_payment_method = ""
+        if payment_method == '⚙️ 新增自訂...':
+            custom_payment_method = st.text_input("輸入新支付方式名稱", placeholder="例如：LINE Pay", key='custom_method_input')
 
-        # 備註
+        # 備註 (位置不變)
         note = col4.text_area(
             "輸入備註 (可選)", height=80,
             key='note_input',
             placeholder="例如：晚餐 - 麥當勞"
         )
+        # --- 🔴 修改結束 ---
 
         submitted = st.form_submit_button("➕ 儲存", use_container_width=True)
 
@@ -788,11 +794,33 @@ def display_record_input(db, user_id):
             if category == "⚙️ 新增自訂支出類別...":
                 if not custom_category.strip():
                     st.warning("⚠️ 請輸入自訂類別的名稱。")
-                    st.stop() # 阻止提交
+                    st.stop()
                 final_category = custom_category.strip()
             elif not category:
                  st.warning("⚠️ 請選擇一個類別。")
-                 st.stop() # 阻止提交
+                 st.stop()
+
+            # --- 🔴 修改開始：處理支付方式邏輯 (查找 ID 或新建 ID) ---
+            final_account_name = None
+            final_account_id = None
+            
+            # 1. 決定支付方式名稱
+            if payment_method == '⚙️ 新增自訂...':
+                if not custom_payment_method.strip():
+                    st.warning("⚠️ 請輸入自訂支付方式的名稱。")
+                    st.stop()
+                final_account_name = custom_payment_method.strip()
+            elif payment_method != '（未選擇）':
+                final_account_name = payment_method
+
+            # 2. 處理 ID：若名稱存在則取舊 ID，若不存在則生成新 UUID
+            if final_account_name:
+                if final_account_name in name_to_id:
+                    final_account_id = name_to_id[final_account_name]
+                else:
+                    # 這是一個新的支付方式（例如第一次選「現金」或自訂），生成新 ID
+                    final_account_id = str(uuid.uuid4())
+            # --- 🔴 修改結束 ---
 
             record_data = {
                 'date': date,
@@ -802,73 +830,43 @@ def display_record_input(db, user_id):
                 'note': note.strip() or "無備註",
                 'timestamp': datetime.datetime.now()
             }
-            # 若有選擇銀行帳戶：附加 account_id/name
-            if account_id_selected and account_id_selected != '__NONE__':
-                record_data['account_id'] = account_id_selected
-                try:
-                    record_data['account_name'] = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
-                except Exception:
-                    record_data['account_name'] = ''
-
-            # 若有選擇銀行帳戶，記錄 account_id 與 account_name
-            if account_id_selected and account_id_selected != '__NONE__':
-                record_data['account_id'] = account_id_selected
-                try:
-                    record_data['account_name'] = next((acc.get('name','') for acc_id, acc in (bank_accounts.items() if isinstance(bank_accounts, dict) else []) if acc_id == account_id_selected), '')
-                except Exception:
-                    record_data['account_name'] = ''
+            
+            # 若有選擇支付方式，記錄 ID 與名稱
+            if final_account_id:
+                record_data['account_id'] = final_account_id
+                record_data['account_name'] = final_account_name
 
             add_record(db, user_id, record_data)
-            # 若綁定帳戶，依收入/支出自動調整帳戶餘額
-            if 'account_id_selected' in locals() and account_id_selected and account_id_selected != '__NONE__':
+
+            # --- 🔴 修改開始：同步更新帳戶/支付方式餘額 ---
+            if final_account_id:
                 try:
+                    # 重新讀取最新的帳戶資料 (避免並發問題，雖然這裡是簡易版)
                     ba = load_bank_accounts(db, user_id) or {}
-                    if isinstance(ba, dict):
-                        if account_id_selected not in ba or not isinstance(ba[account_id_selected], dict):
-                            ba[account_id_selected] = {'name': record_data.get('account_name',''), 'balance': 0}
-                        current_bal = safe_float(ba[account_id_selected].get('balance', 0))
-                        delta = float(safe_int(amount)) * (-1.0 if record_type == '支出' else 1.0)
-                        ba[account_id_selected]['balance'] = current_bal + delta
-                        update_bank_accounts(db, user_id, ba)
+                    if not isinstance(ba, dict): ba = {}
+                    
+                    # 計算新餘額
+                    current_acc_data = ba.get(final_account_id, {'name': final_account_name, 'balance': 0})
+                    # 確保如果以前沒有這個帳戶，現在會建立 (並保留正確名稱)
+                    if 'name' not in current_acc_data: current_acc_data['name'] = final_account_name
+                    
+                    current_bal = safe_float(current_acc_data.get('balance', 0))
+                    delta = float(safe_int(amount)) * (-1.0 if record_type == '支出' else 1.0)
+                    new_bal = current_bal + delta
+                    
+                    # 更新字典
+                    ba[final_account_id] = {'name': final_account_name, 'balance': new_bal}
+                    
+                    # 寫入資料庫
+                    update_bank_accounts(db, user_id, ba)
+                    st.toast(f"🏦 已更新「{final_account_name}」餘額：NT$ {int(new_bal):,}")
                 except Exception as _e:
-                    st.warning(f"⚠️ 帳戶餘額未能同步更新：{_e}")
+                    st.warning(f"⚠️ 支付方式餘額未能同步更新：{_e}")
+            # --- 🔴 修改結束 ---
 
-            # 若選擇了銀行帳戶，依收支類型即時調整該帳戶餘額
-            try:
-                if account_id_selected and account_id_selected != '__NONE__':
-                    _accounts = load_bank_accounts(db, user_id) or {}
-                    if not isinstance(_accounts, dict):
-                        _accounts = {}
-                    _acc = _accounts.get(account_id_selected, {})
-                    _bal = _acc.get('balance', 0)
-                    try:
-                        _bal = float(_bal)
-                    except Exception:
-                        try:
-                            _bal = float(str(_bal).replace(',', '').strip())
-                        except Exception:
-                            _bal = 0.0
-
-                    _amt = float(safe_int(amount))
-                    if record_type == '支出':
-                        _new_bal = _bal - _amt
-                    else:  # '收入'
-                        _new_bal = _bal + _amt
-
-                    # 寫回
-                    if account_id_selected not in _accounts or not isinstance(_accounts[account_id_selected], dict):
-                        _accounts[account_id_selected] = {'name': record_data.get('account_name',''), 'balance': _new_bal}
-                    else:
-                        _accounts[account_id_selected]['balance'] = _new_bal
-
-                    update_bank_accounts(db, user_id, _accounts)
-                    st.toast(f"🏦 已更新「{record_data.get('account_name','選定帳戶')}」餘額：NT$ {int(_new_bal):,}")
-            except Exception as _e:
-                st.warning(f"更新帳戶餘額時發生問題：{_e}")
-
-            # 清除快取並重跑以更新儀表板
-            st.cache_data.clear() # 清除所有 @st.cache_data
-            st.cache_resource.clear() # 清除所有 @st.cache_resource (包括 DB 連線，下次自動重連)
+            # 清除快取並重跑
+            st.cache_data.clear()
+            st.cache_resource.clear()
             st.rerun()
 
 @st.cache_data(ttl=300, hash_funcs={firestore.Client: id}) # 緩存類別列表 5 分鐘
