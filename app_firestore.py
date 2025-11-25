@@ -1215,7 +1215,7 @@ def display_bank_account_management(db, user_id):
 # --- 7. 主應用程式框架 (使用 st.tabs) ---
 
 def display_quick_entry_on_home(db, user_id):
-    """首頁的『快速記帳』：新增支付方式 (選填)"""
+    """首頁的『快速記帳』：新增淡灰色示範提示 (Placeholder)"""
     
     if 'show_quick_entry' not in st.session_state:
         st.session_state.show_quick_entry = False
@@ -1233,43 +1233,76 @@ def display_quick_entry_on_home(db, user_id):
     # --- 準備數據 ---
     CATEGORY_OPTIONS = ["食", "衣", "住", "行", "育樂", "其他"]
     
-    # 載入現有帳戶與支付方式選項
     try:
         bank_accounts = load_bank_accounts(db, user_id)
     except:
         bank_accounts = {}
     
-    # 建立 名稱 -> ID 對照表
     name_to_id = {data.get('name'): aid for aid, data in bank_accounts.items() if isinstance(data, dict)}
     default_methods = ['現金', '信用卡', '悠遊卡']
     existing_names = list(name_to_id.keys())
-    # 選項列表：(未選擇) + 預設 + 現有帳戶
-    payment_options = ['(未選擇)'] + default_methods + sorted([n for n in existing_names if n not in default_methods])
+    
+    # 🔴 修改 1: 移除 '(未選擇)'，直接準備純淨的選項列表，讓 placeholder 生效
+    payment_options = default_methods + sorted([n for n in existing_names if n not in default_methods])
 
     # --- 版面配置 ---
-    # 調整欄位比例以容納支付方式：類別, 金額, 支付方式, 備註, 動作
     row1 = st.columns([2, 2, 2, 2.5, 1.5])
 
     with row1[0]:
-        category = st.selectbox("類別", options=CATEGORY_OPTIONS, index=0, key='quick_entry_category', label_visibility="collapsed", placeholder="類別")
+        # 🔴 修改 2: index=None 讓框框變空，並加上 placeholder
+        category = st.selectbox(
+            "類別", 
+            options=CATEGORY_OPTIONS, 
+            index=None,  # 預設不選
+            key='quick_entry_category', 
+            label_visibility="collapsed", 
+            placeholder="如:食" # 示範提示
+        )
     with row1[1]:
-        amount = st.number_input("金額", min_value=0, step=100, format="%d", key='quick_entry_amount', label_visibility="collapsed", placeholder="金額")
+        # 🔴 修改 3: value=None 讓框框變空，並加上 placeholder
+        amount = st.number_input(
+            "金額", 
+            min_value=0, 
+            value=None, # 預設為空
+            step=100, 
+            format="%d", 
+            key='quick_entry_amount', 
+            label_visibility="collapsed", 
+            placeholder="如:150" # 示範提示
+        )
     with row1[2]:
-        # 新增：支付方式選擇
-        payment_method = st.selectbox("支付方式", options=payment_options, index=0, key='quick_entry_payment', label_visibility="collapsed")
+        # 🔴 修改 4: index=None 且加上 placeholder
+        payment_method = st.selectbox(
+            "支付方式", 
+            options=payment_options, 
+            index=None, # 預設不選
+            key='quick_entry_payment', 
+            label_visibility="collapsed",
+            placeholder="如:現金" # 示範提示
+        )
     with row1[3]:
-        note = st.text_input("備註", placeholder="備註...", key='quick_entry_note', label_visibility="collapsed")
+        # 🔴 修改 5: 調整 placeholder 文字
+        note = st.text_input(
+            "備註", 
+            placeholder="如:早餐", # 示範提示
+            key='quick_entry_note', 
+            label_visibility="collapsed"
+        )
     with row1[4]:
         save_clicked = st.button("新增", use_container_width=True, key="quick_entry_save")
-        # cancel_clicked 可以放下面或另外處理，這裡為求簡潔只放新增，若要取消可再點一次標題或重新整理，或者加一個 X 按鈕
-        if st.button("❌", key="quick_entry_cancel"): # 簡易取消按鈕
+        if st.button("❌", key="quick_entry_cancel"):
              st.session_state.show_quick_entry = False
              st.rerun()
 
     # --- 儲存邏輯 ---
     if save_clicked:
-        if amount is None or int(amount) <= 0:
-            st.warning("金額需大於 0"); return
+        # 🔴 修改 6: 增加驗證邏輯，因為現在預設值可能是 None
+        if not category:
+            st.toast("⚠️ 請選擇類別")
+            return
+        if amount is None or amount <= 0:
+            st.toast("⚠️ 請輸入有效金額")
+            return
 
         amt = int(amount)
         record_data = {
@@ -1281,13 +1314,13 @@ def display_quick_entry_on_home(db, user_id):
             'timestamp': datetime.datetime.now(),
         }
 
-        # 處理支付方式 (若有選擇)
+        # 處理支付方式
         final_acc_id = None
         final_acc_name = None
 
-        if payment_method != '(未選擇)':
+        # 🔴 修改 7: 判斷 payment_method 是否有值 (因改為 index=None，未選即為 None)
+        if payment_method: 
             final_acc_name = payment_method
-            # 查找 ID 或生成新 ID (例如第一次選「現金」)
             final_acc_id = name_to_id.get(final_acc_name)
             if not final_acc_id:
                 final_acc_id = str(uuid.uuid4())
@@ -1297,7 +1330,7 @@ def display_quick_entry_on_home(db, user_id):
 
         add_record(db, user_id, record_data)
 
-        # 更新餘額 (僅在有選擇支付方式時)
+        # 更新餘額
         if final_acc_id:
             try:
                 ba = load_bank_accounts(db, user_id) or {}
@@ -1307,7 +1340,6 @@ def display_quick_entry_on_home(db, user_id):
                 if 'name' not in acc_data: acc_data['name'] = final_acc_name
                 
                 current_bal = safe_float(acc_data.get('balance', 0))
-                # 快速記帳預設為「支出」，所以扣款
                 new_bal = current_bal - float(amt)
                 
                 ba[final_acc_id] = {'name': final_acc_name, 'balance': new_bal}
@@ -1318,8 +1350,8 @@ def display_quick_entry_on_home(db, user_id):
         else:
             st.toast(f"✅ 已記帳：{category} NT$ {amt:,}")
 
-        # 清理並重跑
         st.session_state.show_quick_entry = False
+        # 清理 Session State
         keys_to_clear = ['quick_entry_category', 'quick_entry_amount', 'quick_entry_note', 'quick_entry_payment']
         for k in keys_to_clear:
             if k in st.session_state: del st.session_state[k]
