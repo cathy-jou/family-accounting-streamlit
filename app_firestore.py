@@ -863,15 +863,25 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入編輯功能)"""
+    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入支付方式編輯)"""
     st.markdown("## 歷史紀錄")
+
+    # --- 1. 預先載入支付方式選項 (新增) ---
+    try:
+        bank_accounts = load_bank_accounts(db, user_id)
+    except:
+        bank_accounts = {}
+    
+    name_to_id = {data.get('name'): aid for aid, data in bank_accounts.items() if isinstance(data, dict)}
+    default_methods = ['現金', '信用卡', '悠遊卡']
+    existing_names = list(name_to_id.keys())
+    base_payment_options = default_methods + sorted([n for n in existing_names if n not in default_methods])
 
     if df_records is None or df_records.empty:
         st.info("ℹ️ 目前沒有任何交易紀錄。")
         return
 
-    # --- 篩選器 (保持不變) ---
-    # st.markdown("### 篩選紀錄")
+    # --- 篩選器 ---
     col1, col2, col3, col4 = st.columns([1, 1, 3, 1])
     
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
@@ -890,11 +900,9 @@ def display_records_list(db, user_id, df_records):
              selected_month = None
              st.info("尚無紀錄可供篩選月份。")
         else:
-            #  selected_month = col1.selectbox("選擇月份", options=all_months, index=0, key='month_selector')
-             selected_month = col1.selectbox("", options=all_months, index=0, key='month_selector')
+             selected_month = col1.selectbox("", options=all_months, index=0, key='month_selector', label_visibility="collapsed")
     
-    # type_filter = col2.selectbox("選擇類型", options=['全部', '收入', '支出'], key='type_filter')
-    type_filter = col2.selectbox("", options=['全部', '收入', '支出'], key='type_filter')
+    type_filter = col2.selectbox("", options=['全部', '收入', '支出'], key='type_filter', label_visibility="collapsed")
     
     df_filtered = df_records.copy()
     if selected_month:
@@ -917,7 +925,7 @@ def display_records_list(db, user_id, df_records):
     if st.session_state.editing_record_id is None:
         df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
-    # --- 導出按鈕 (保持不變) ---
+    # 導出按鈕
     if not df_filtered.empty:
         csv = convert_df_to_csv(df_filtered) 
         file_name_month = selected_month if selected_month else "all"
@@ -931,16 +939,14 @@ def display_records_list(db, user_id, df_records):
             )
     else:
         col4.info("無紀錄")
-    # st.markdown("---")
 
     # --- 紀錄列表標題 ---
-    # st.markdown("### 紀錄明細")
     header_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
     headers = ['日期', '類別', '金額', '類型', '備註', '操作']
     for col, header in zip(header_cols, headers):
         col.markdown(f"**{header}**")
 
-    # --- 顯示篩選後的紀錄 (📌 核心修改) ---
+    # --- 顯示與編輯紀錄 ---
     if df_filtered.empty:
         st.info("ℹ️ 無符合篩選條件的交易紀錄。")
     else:
@@ -952,67 +958,35 @@ def display_records_list(db, user_id, df_records):
                 record_category = row.get('category', 'N/A')
                 record_amount = safe_float(row.get('amount', 0)) 
                 record_note = row.get('note', 'N/A')
+                record_account_name = row.get('account_name') # 獲取現有的支付方式
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
                 continue
 
-            # 📌 關鍵：檢查這筆紀錄是否正在被編輯
+            # --- 編輯模式 ---
             if record_id == st.session_state.get('editing_record_id'):
                 
+                def _safe_date_local(v):
+                    if isinstance(v, datetime.date): return v
+                    return safe_date(v)
 
-                # 本地 _safe_date，避免 NaT/None/字串 型別錯誤
-                def _safe_date(v):
-                    import datetime
-                    try:
-                        try:
-                            import pandas as pd
-                            if hasattr(pd, "isna") and pd.isna(v):
-                                return datetime.date.today()
-                            if isinstance(v, pd.Timestamp):
-                                return v.to_pydatetime().date()
-                        except Exception:
-                            pass
-                        try:
-                            import numpy as np
-                            if isinstance(v, np.datetime64):
-                                ts = v.astype('M8[ms]').astype('O')
-                                if ts is None:
-                                    return datetime.date.today()
-                                return ts.date() if hasattr(ts, 'date') else datetime.date.today()
-                        except Exception:
-                            pass
-                        if v is None:
-                            return datetime.date.today()
-                        if isinstance(v, datetime.datetime):
-                            return v.date()
-                        if isinstance(v, datetime.date):
-                            return v
-                        if hasattr(v, "date"):
-                            try:
-                                return v.date()
-                            except Exception:
-                                pass
-                        s = str(v).strip()
-                        if not s:
-                            return datetime.date.today()
-                        try:
-                            return datetime.date.fromisoformat(s[:10])
-                        except Exception:
-                            return datetime.date.today()
-                    except Exception:
-                        return datetime.date.today()
                 st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
+                
+                # 第一行：日期、類型、金額
                 edit_cols_1 = st.columns(3)
                 with edit_cols_1[0]:
-                    default_date = safe_date(record_date_obj) # <-- 直接使用全域函式
-                    new_date = st.date_input("日期", value=_safe_date(default_date), key=f"edit_date_{record_id}")
+                    default_date = safe_date(record_date_obj)
+                    new_date = st.date_input("日期", value=_safe_date_local(default_date), key=f"edit_date_{record_id}")
                 with edit_cols_1[1]:
                     new_type = st.radio("類型", ['支出', '收入'], index=0 if record_type == '支出' else 1, key=f"edit_type_{record_id}", horizontal=True)
                 with edit_cols_1[2]:
                     new_amount = st.number_input("金額", min_value=0, value=safe_int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
                 
-                edit_cols_2 = st.columns(2)
+                # --- 🔴 修改重點：第二行改為 3 欄，加入支付方式 ---
+                edit_cols_2 = st.columns([1.5, 1.5, 3]) 
+                
                 with edit_cols_2[0]:
+                    # 類別
                     category_options = CATEGORIES.get(new_type, [])
                     if new_type == '支出':
                         try:
@@ -1029,11 +1003,34 @@ def display_records_list(db, user_id, df_records):
                         else:
                             cat_index = 0
                     new_category = st.selectbox("類別", options=category_options or ["未分類"], index=min(cat_index, max(len(category_options)-1, 0)), key=f"edit_cat_{record_id}")
+
                 with edit_cols_2[1]:
-                    new_note = st.text_area("備註", value=record_note or "", key=f"edit_note_{record_id}", height=100)
+                    # 支付方式 (新增)
+                    # 確保原紀錄的帳戶名稱有在選項中
+                    current_options = list(base_payment_options)
+                    if record_account_name and record_account_name not in current_options:
+                        current_options.append(record_account_name)
+                    
+                    # 計算 Index
+                    pay_index = None
+                    if record_account_name in current_options:
+                        pay_index = current_options.index(record_account_name)
+
+                    new_payment_method = st.selectbox(
+                        "支付方式",
+                        options=current_options,
+                        index=pay_index, # 若為 None 則不選 (Placeholder生效)
+                        placeholder="選填...",
+                        key=f"pay_select_{record_id}"
+                    )
+
+                with edit_cols_2[2]:
+                    # 備註
+                    new_note = st.text_area("備註", value=record_note or "", key=f"edit_note_{record_id}", height=60)
                 
+                # 按鈕列
                 btn_cols = st.columns([1,1,3])
-                save_clicked = btn_cols[0].button("💾 儲存變更", use_container_width=True, key=f"save_btn_{record_id}")
+                save_clicked = btn_cols[0].button("💾 儲存", use_container_width=True, key=f"save_btn_{record_id}")
                 cancel_clicked = btn_cols[1].button("❌ 取消", use_container_width=True, key=f"cancel_btn_{record_id}")
                 
                 if cancel_clicked:
@@ -1055,20 +1052,33 @@ def display_records_list(db, user_id, df_records):
                             'amount': float(safe_int(new_amount)),
                             'note': (new_note or "").strip() or "無備註",
                         }
+                        
+                        # --- 🔴 修改重點：處理支付方式更新 ---
+                        if new_payment_method:
+                            # 查找 ID，若無則建立新 ID (確保資料完整)
+                            acc_id = name_to_id.get(new_payment_method)
+                            if not acc_id:
+                                acc_id = str(uuid.uuid4())
+                            
+                            new_data['account_name'] = new_payment_method
+                            new_data['account_id'] = acc_id
+                        else:
+                            # 清除欄位
+                            new_data['account_name'] = firestore.DELETE_FIELD
+                            new_data['account_id'] = firestore.DELETE_FIELD
+                        # --------------------------------
+
                         old_data = {'type': record_type, 'amount': record_amount}
                         update_record(db, user_id, record_id, new_data, old_data)
                         st.session_state.editing_record_id = None
                         st.rerun()
-# 📌 表單在這裡結束
 
             else:
-                
+                # --- 瀏覽模式 (保持原樣，僅優化顯示) ---
                 if pd.isna(record_date_obj):
-                    record_id_str = row.get('id', 'N/A') 
-                    record_date_str = f"日期錯誤 (ID: {record_id_str})"
+                    record_date_str = f"Error"
                 else:
                     try:
-                        #  record_date_str = record_date_obj.strftime('%Y-%m-%d')
                          record_date_str = safe_date(record_date_obj).strftime('%Y-%m-%d')
                     except Exception:
                          record_date_str = str(record_date_obj).split(' ')[0]
@@ -1082,20 +1092,57 @@ def display_records_list(db, user_id, df_records):
                     row_cols[1].write(record_category)
                     row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
                     row_cols[3].write(record_type)
-                    row_cols[4].write(record_note)
+                    
+                    # 在備註後方顯示支付方式
+                    display_note = record_note
+                    if record_account_name:
+                         display_note += f" ({record_account_name})"
+                    row_cols[4].write(display_note)
 
-                    if row_cols[5].button("✏️", key=f"edit_{record_id}", help="編輯此紀錄"):
+                    if row_cols[5].button("✏️", key=f"edit_{record_id}", help="編輯"):
                         st.session_state.editing_record_id = record_id
                         st.rerun()
 
-                    if row_cols[5].button("🗑️", key=f"delete_{record_id}", type="secondary", help="刪除此紀錄"):
-                        delete_record(
-                            db=db,
-                            user_id=user_id,
-                            record_id=record_id,
-                            record_type=record_type,
-                            record_amount=record_amount
-                        )
+                    if row_cols[5].button("🗑️", key=f"delete_{record_id}", type="secondary", help="刪除"):
+                        delete_record(db, user_id, record_id, record_type, record_amount)
+
+# # 📌 表單在這裡結束
+
+#             else:
+                
+#                 if pd.isna(record_date_obj):
+#                     record_id_str = row.get('id', 'N/A') 
+#                     record_date_str = f"日期錯誤 (ID: {record_id_str})"
+#                 else:
+#                     try:
+#                         #  record_date_str = record_date_obj.strftime('%Y-%m-%d')
+#                          record_date_str = safe_date(record_date_obj).strftime('%Y-%m-%d')
+#                     except Exception:
+#                          record_date_str = str(record_date_obj).split(' ')[0]
+
+#                 color = "#28a745" if record_type == '收入' else "#dc3545"
+#                 amount_sign = "+" if record_type == '收入' else "-"
+
+#                 with st.container(border=True):
+#                     row_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
+#                     row_cols[0].write(record_date_str)
+#                     row_cols[1].write(record_category)
+#                     row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
+#                     row_cols[3].write(record_type)
+#                     row_cols[4].write(record_note)
+
+#                     if row_cols[5].button("✏️", key=f"edit_{record_id}", help="編輯此紀錄"):
+#                         st.session_state.editing_record_id = record_id
+#                         st.rerun()
+
+#                     if row_cols[5].button("🗑️", key=f"delete_{record_id}", type="secondary", help="刪除此紀錄"):
+#                         delete_record(
+#                             db=db,
+#                             user_id=user_id,
+#                             record_id=record_id,
+#                             record_type=record_type,
+#                             record_amount=record_amount
+#                         )
 
 def display_balance_management(db, user_id, current_balance):
     """顯示餘額手動管理區塊"""
