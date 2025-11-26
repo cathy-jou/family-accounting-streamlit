@@ -615,7 +615,7 @@ def display_dashboard(db, user_id):
         df['month_str'] = df['date'].dt.strftime('%Y-%m')
 
     # --- 2. 資產概況卡片區塊 (保持原樣) ---
-    st.markdown("### 📊 資產概況")
+    st.markdown("### 資產概況")
     
     today = datetime.date.today()
     this_month_str = today.strftime('%Y-%m')
@@ -639,7 +639,7 @@ def display_dashboard(db, user_id):
     st.markdown("---")
 
     # --- 3. 收支分析 ---
-    st.markdown("### 📈 收支趨勢分析")
+    st.markdown("### 統計分析")
 
     if df.empty:
         st.info("目前沒有交易紀錄，無法顯示圖表。")
@@ -653,11 +653,11 @@ def display_dashboard(db, user_id):
             # 時間區間
             first_day = today.replace(day=1)
             start_default = first_day - datetime.timedelta(days=30*6)
-            date_range = st.date_input("📅 選擇時間區間", value=(start_default, today), max_value=today, key="dashboard_date_range")
+            date_range = st.date_input("時間區間", value=(start_default, today), max_value=today, key="dashboard_date_range")
         
         with col_ctrl2:
             # 圖表類型
-            chart_mode = st.radio("📊 圖表類型", options=["長條圖 (趨勢)", "圓餅圖 (佔比)"], horizontal=True, key="dashboard_chart_mode")
+            chart_mode = st.radio("圖表類型", options=["長條圖", "圓餅圖"], horizontal=True, key="dashboard_chart_mode")
 
     # 資料篩選
     if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -680,11 +680,17 @@ def display_dashboard(db, user_id):
         c1, c2 = st.columns([1, 3])
         with c1:
             # 修改：改為 multiselect 以支援同時選取
+            st.markdown(
+                """<span style="background-color: black; color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-bottom: 5px;">顯示項目</span>""", 
+                unsafe_allow_html=True
+            )
+            
             selected_types = st.multiselect(
-                "顯示項目", 
+                "顯示項目", # 這裡的文字主要供 screen reader 使用
                 ["支出", "收入"], 
                 default=["支出", "收入"],
-                key="bar_target_selector"
+                key="bar_target_selector",
+                label_visibility="collapsed" # 隱藏原本的標籤，改用上方自訂的
             )
         
         if not selected_types:
