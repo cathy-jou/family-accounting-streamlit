@@ -1290,7 +1290,7 @@ def display_quick_entry_on_home(db, user_id):
         )
     with row1[4]:
         save_clicked = st.button("新增", use_container_width=True, key="quick_entry_save")
-        if st.button("取消", key="quick_entry_cancel"):
+        if st.button("取消", use_container_width=True, key="quick_entry_cancel"):
              st.session_state.show_quick_entry = False
              st.rerun()
 
