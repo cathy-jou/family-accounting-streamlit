@@ -680,31 +680,11 @@ def display_dashboard(db, user_id):
         c1, c2 = st.columns([1, 3])
         with c1:
             # 修改：改為 multiselect 以支援同時選取
-            st.markdown(
-                """
-                <div style="
-                    background-color: #000000 !important;
-                    color: #ffffff !important;
-                    padding: 5px 10px;
-                    border-radius: 5px;
-                    font-size: 14px;
-                    font-weight: bold;
-                    display: inline-block;
-                    margin-bottom: 0px;
-                    line-height: 1.5;
-                ">
-                顯示項目
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-            
             selected_types = st.multiselect(
-                "顯示項目", # 這裡的文字主要供 screen reader 使用
+                "顯示項目", 
                 ["支出", "收入"], 
                 default=["支出", "收入"],
-                key="bar_target_selector",
-                label_visibility="collapsed" 
+                key="bar_target_selector"
             )
         
         if not selected_types:
