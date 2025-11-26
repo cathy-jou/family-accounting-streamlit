@@ -681,7 +681,21 @@ def display_dashboard(db, user_id):
         with c1:
             # 修改：改為 multiselect 以支援同時選取
             st.markdown(
-                """<span style="background-color: black; color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-block; margin-bottom: 5px;">顯示項目</span>""", 
+                """
+                <div style="
+                    background-color: #000000 !important;
+                    color: #ffffff !important;
+                    padding: 5px 10px;
+                    border-radius: 5px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    display: inline-block;
+                    margin-bottom: 0px;
+                    line-height: 1.5;
+                ">
+                顯示項目
+                </div>
+                """, 
                 unsafe_allow_html=True
             )
             
@@ -690,7 +704,7 @@ def display_dashboard(db, user_id):
                 ["支出", "收入"], 
                 default=["支出", "收入"],
                 key="bar_target_selector",
-                label_visibility="collapsed" # 隱藏原本的標籤，改用上方自訂的
+                label_visibility="collapsed" 
             )
         
         if not selected_types:
