@@ -676,15 +676,35 @@ def display_dashboard(db, user_id):
     # --- 圖表繪製 ---
     
     # === 模式 A: 長條圖 (趨勢) - 修改：多選且並排顯示 ===
-    if chart_mode == "長條圖 (趨勢)":
+    if chart_mode == "長條圖":
         c1, c2 = st.columns([1, 3])
         with c1:
+            st.markdown(
+                """
+                <div style="
+                    background-color: #000000 !important;
+                    color: #ffffff !important;
+                    padding: 5px 10px;
+                    border-radius: 5px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    display: inline-block;
+                    margin-bottom: 0px;
+                    line-height: 1.5;
+                ">
+                顯示項目
+
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
             # 修改：改為 multiselect 以支援同時選取
             selected_types = st.multiselect(
                 "顯示項目", 
                 ["支出", "收入"], 
                 default=["支出", "收入"],
-                key="bar_target_selector"
+                key="bar_target_selector",
+                label_visibility="collapsed"
             )
         
         if not selected_types:
