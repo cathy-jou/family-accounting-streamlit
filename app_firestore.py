@@ -603,33 +603,79 @@ def convert_df_to_csv(df: pd.DataFrame):
 
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
-    """首頁儀表板：收支趨勢與分析 (已修改：支援長條圖/圓餅圖切換與時間篩選)"""
-    st.markdown("### 📊 收支分析")
+    """首頁儀表板：資產概況卡片 + 收支分析圖表 (已修正 NameError 與介面還原)"""
+    
+    # --- 1. 取得資料 ---
+    # 修正：使用正確的函式名稱 get_all_records
+    df = get_all_records(db, user_id)
+    
+    # 取得當前餘額
+    current_balance = get_current_balance(db, user_id)
 
-    # 1. 取得資料並轉為 DataFrame
-    records = get_records(db, user_id)
-    if not records:
+    # 確保日期格式正確 (用於後續篩選)
+    if not df.empty and 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'])
+        df['month_str'] = df['date'].dt.strftime('%Y-%m')
+
+    # --- 2. (還原) 資產概況卡片區塊 ---
+    # 這是原先介面應有的部分，計算本月收支與總餘額
+    st.markdown("### 📊 資產概況")
+    
+    # 計算本月數據
+    today = datetime.date.today()
+    this_month_str = today.strftime('%Y-%m')
+    
+    income_this_month = 0
+    expense_this_month = 0
+    
+    if not df.empty and 'month_str' in df.columns:
+        monthly_df = df[df['month_str'] == this_month_str]
+        income_this_month = monthly_df[monthly_df['type'] == '收入']['amount'].sum()
+        expense_this_month = monthly_df[monthly_df['type'] == '支出']['amount'].sum()
+
+    # 顯示卡片 (使用您 CSS 中定義的樣式類別)
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        st.markdown(f"""
+        <div class="info-card balance-card">
+            <h4>💰 目前總餘額</h4>
+            <p>NT$ {int(current_balance):,}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c2:
+        st.markdown(f"""
+        <div class="info-card income-card">
+            <h4>📥 本月收入</h4>
+            <p>+ {int(income_this_month):,}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c3:
+        st.markdown(f"""
+        <div class="info-card expense-card">
+            <h4>📤 本月支出</h4>
+            <p>- {int(expense_this_month):,}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # --- 3. 收支分析 (新版圖表功能) ---
+    st.markdown("### 📈 收支趨勢分析")
+
+    if df.empty:
         st.info("目前沒有交易紀錄，無法顯示圖表。")
         return
 
-    df = pd.DataFrame(records)
-    # 確保日期格式正確
-    if 'date' in df.columns:
-        df['date'] = pd.to_datetime(df['date'])
-        df['month_str'] = df['date'].dt.strftime('%Y-%m') # 用於長條圖 X 軸
-    else:
-        st.error("資料格式錯誤 (缺少日期欄位)")
-        return
-
-    # --- 介面控制區 (Filters) ---
+    # 介面控制區
     with st.container(border=True):
         col_ctrl1, col_ctrl2 = st.columns([1, 1])
         
         with col_ctrl1:
-            # 時間區間選取 (預設本月)
-            today = datetime.date.today()
+            # 時間區間選取 (預設最近 6 個月)
             first_day = today.replace(day=1)
-            # 預設顯示最近 6 個月
             start_default = first_day - datetime.timedelta(days=30*6)
             
             date_range = st.date_input(
@@ -648,17 +694,16 @@ def display_dashboard(db, user_id):
                 key="dashboard_chart_mode"
             )
 
-    # --- 資料篩選邏輯 ---
+    # 資料篩選
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
-        # 將 end_date 轉為 datetime 並設為當天最後一刻，確保包含當天
+        # 轉為 Timestamp 進行比較
         start_dt = pd.to_datetime(start_date)
         end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         
         mask = (df['date'] >= start_dt) & (df['date'] <= end_dt)
         df_filtered = df.loc[mask].copy()
     else:
-        st.warning("請選擇完整的起始與結束日期")
         df_filtered = df.copy()
 
     if df_filtered.empty:
@@ -674,22 +719,19 @@ def display_dashboard(db, user_id):
             bar_target = st.radio("顯示項目", ["總支出", "總收入"], key="bar_target_selector")
         
         target_type = "支出" if bar_target == "總支出" else "收入"
-        bar_color = "#dc3545" if target_type == "支出" else "#28a745" # 紅色支出，綠色收入
+        bar_color = "#dc3545" if target_type == "支出" else "#28a745"
         
-        # 資料聚合：按月份加總
+        # 按月加總
         df_bar = df_filtered[df_filtered['type'] == target_type].groupby('month_str')['amount'].sum().reset_index()
         
         if df_bar.empty:
             st.info(f"此區間無{target_type}紀錄。")
         else:
-            # Altair 長條圖
             bar_chart = alt.Chart(df_bar).mark_bar(color=bar_color).encode(
                 x=alt.X('month_str', title='月份', axis=alt.Axis(labelAngle=-45)),
                 y=alt.Y('amount', title='金額 (NTD)'),
                 tooltip=['month_str', alt.Tooltip('amount', format=',.0f', title='金額')]
-            ).properties(
-                height=300
-            )
+            ).properties(height=300)
             st.altair_chart(bar_chart, use_container_width=True)
 
     # === 模式 B: 圓餅圖 (佔比) ===
@@ -702,55 +744,38 @@ def display_dashboard(db, user_id):
                 key="pie_target_selector"
             )
 
-        # 準備資料
         df_pie = pd.DataFrame()
         title_text = ""
-        color_scale = None # 預設顏色
         
         if pie_target == "月總收入 v.s. 月總支出":
-            # 按類型加總
             df_pie = df_filtered.groupby('type')['amount'].sum().reset_index()
-            # 指定顏色：支出紅，收入綠
             domain = ['支出', '收入']
             range_ = ['#dc3545', '#28a745']
             color_enc = alt.Color('type', scale=alt.Scale(domain=domain, range=range_), title='類型')
-            theta_enc = alt.Theta('amount', stack=True)
-            tooltip_enc = ['type', alt.Tooltip('amount', format=',.0f', title='金額')]
-            title_text = "收支總額比較"
-
+            
         elif pie_target == "支出類別佔比":
             df_pie = df_filtered[df_filtered['type'] == '支出'].groupby('category')['amount'].sum().reset_index()
-            color_enc = alt.Color('category', title='類別', scale=alt.Scale(scheme='category20b')) # 使用多色系
-            theta_enc = alt.Theta('amount', stack=True)
-            tooltip_enc = ['category', alt.Tooltip('amount', format=',.0f', title='金額')]
-            title_text = "支出類別分佈"
+            color_enc = alt.Color('category', title='類別', scale=alt.Scale(scheme='category20b'))
 
         elif pie_target == "收入類別佔比":
             df_pie = df_filtered[df_filtered['type'] == '收入'].groupby('category')['amount'].sum().reset_index()
             color_enc = alt.Color('category', title='類別', scale=alt.Scale(scheme='category20c'))
-            theta_enc = alt.Theta('amount', stack=True)
-            tooltip_enc = ['category', alt.Tooltip('amount', format=',.0f', title='金額')]
-            title_text = "收入類別分佈"
 
-        # 繪製圓餅圖
         if df_pie.empty:
             st.info("此區間無相關資料可供分析。")
         else:
-            base = alt.Chart(df_pie).encode(theta=theta_enc)
-            
+            base = alt.Chart(df_pie).encode(theta=alt.Theta('amount', stack=True))
             pie = base.mark_arc(outerRadius=100).encode(
                 color=color_enc,
-                tooltip=tooltip_enc + [alt.Tooltip('amount', format='.1%', title='佔比')] # 這裡佔比需要 window transform 才能精確顯示，暫時顯示金額
+                tooltip=['category', 'type', alt.Tooltip('amount', format=',.0f', title='金額')]
             )
-            
-            # 添加文字標籤 (顯示類別與金額)
+            # 文字標籤
             text = base.mark_text(radius=120).encode(
                 text=alt.Text("amount", format=".0f"), 
                 order=alt.Order("amount", sort="descending"),
                 color=alt.value("black")  
             )
-
-            st.altair_chart(pie, use_container_width=True)
+            st.altair_chart(pie + text, use_container_width=True)
 
 def display_record_input(db, user_id):
     """顯示新增交易紀錄的表單 (已修改：支援支付方式)"""
