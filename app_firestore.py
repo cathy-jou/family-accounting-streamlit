@@ -1381,7 +1381,7 @@ def display_quick_entry_on_home(db, user_id):
             index=None,  # 預設不選
             key='quick_entry_category', 
             label_visibility="collapsed", 
-            placeholder="類別" # 提示詞
+            placeholder="類別 (必填)" # 提示詞
         )
     with row1[1]:
         # 🔴 修改 3: value=None 讓框框變空，並加上 placeholder
@@ -1393,7 +1393,7 @@ def display_quick_entry_on_home(db, user_id):
             format="%d", 
             key='quick_entry_amount', 
             label_visibility="collapsed", 
-            placeholder="支出 (臺幣)" # 提示詞
+            placeholder="支出 (必填)" # 提示詞
         )
     with row1[2]:
         # 🔴 修改 4: index=None 且加上 placeholder
@@ -1403,13 +1403,13 @@ def display_quick_entry_on_home(db, user_id):
             index=None, # 預設不選
             key='quick_entry_payment', 
             label_visibility="collapsed",
-            placeholder="支付方式" # 提示詞
+            placeholder="支付方式 (選填)" # 提示詞
         )
     with row1[3]:
         # 🔴 修改 5: 調整 placeholder 文字
         note = st.text_input(
             "備註", 
-            placeholder="備註", # 提示詞
+            placeholder="備註 (選填)", # 提示詞
             key='quick_entry_note', 
             label_visibility="collapsed"
         )
