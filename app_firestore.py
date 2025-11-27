@@ -1031,10 +1031,9 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入支付方式編輯)"""
-    st.markdown("## 歷史紀錄")
-
-    # --- 1. 預先載入支付方式選項 (新增) ---
+    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入 Excel 匯入功能)"""
+    
+    # --- 1. 預先載入支付方式選項 ---
     try:
         bank_accounts = load_bank_accounts(db, user_id)
     except:
@@ -1045,11 +1044,122 @@ def display_records_list(db, user_id, df_records):
     existing_names = list(name_to_id.keys())
     base_payment_options = default_methods + sorted([n for n in existing_names if n not in default_methods])
 
+    # --- 2. 標題與匯入區塊 (Top-Right) ---
+    col_header, col_upload = st.columns([2, 1.5])
+    
+    with col_header:
+        st.markdown("## 歷史紀錄")
+
+    with col_upload:
+        with st.expander("📥 匯入 Excel 舊資料", expanded=False):
+            # 範例下載
+            example_data = pd.DataFrame([
+                {'日期': '2023-01-01', '類型': '支出', '類別': '食', '金額': 100, '支付方式': '現金', '備註': '早餐範例'},
+                {'日期': '2023-01-02', '類型': '收入', '類別': '薪資', '金額': 50000, '支付方式': '銀行帳戶', '備註': '薪水範例'}
+            ])
+            st.download_button(
+                label="📄 下載 Excel 範例檔",
+                data=convert_df_to_csv(example_data), # 這裡為了方便直接用 CSV，Excel 需額外 dependency，csv 通用性高
+                file_name='import_template.csv',
+                mime='text/csv',
+                key='btn_download_template',
+                help="請下載此範例，填入資料後再上傳 (支援 CSV 格式)"
+            )
+            
+            uploaded_file = st.file_uploader("選擇檔案 (CSV/Excel)", type=['xlsx', 'xls', 'csv'])
+            
+            if uploaded_file is not None:
+                if st.button("確認匯入", key="btn_confirm_import"):
+                    try:
+                        # 讀取檔案
+                        if uploaded_file.name.endswith('.csv'):
+                            df_import = pd.read_csv(uploaded_file)
+                        else:
+                            df_import = pd.read_excel(uploaded_file)
+                        
+                        # 欄位檢查
+                        required_cols = ['日期', '類型', '類別', '金額']
+                        if not all(col in df_import.columns for col in required_cols):
+                            st.error("❌ 格式錯誤：缺少必要欄位 (日期, 類型, 類別, 金額)")
+                        else:
+                            success_count = 0
+                            # 準備批次更新帳戶餘額
+                            updated_accounts = bank_accounts.copy()
+                            
+                            with st.spinner("正在匯入資料..."):
+                                for _, row in df_import.iterrows():
+                                    # 1. 解析資料
+                                    try:
+                                        r_date = pd.to_datetime(row['日期']).date()
+                                        r_type = row['類型']
+                                        if r_type not in ['支出', '收入']: continue
+                                        
+                                        r_category = row['類別']
+                                        r_amount = float(row['金額'])
+                                        r_note = str(row.get('備註', ''))
+                                        if r_note == 'nan': r_note = ''
+                                        
+                                        r_pay_method = str(row.get('支付方式', '')).strip()
+                                        if r_pay_method == 'nan': r_pay_method = ''
+
+                                        # 2. 處理支付方式 & ID
+                                        final_acc_id = None
+                                        if r_pay_method:
+                                            # 檢查是否已存在於目前的 mapping (包含剛建立的)
+                                            if r_pay_method in name_to_id:
+                                                final_acc_id = name_to_id[r_pay_method]
+                                            else:
+                                                # 建立新帳戶 ID
+                                                final_acc_id = str(uuid.uuid4())
+                                                name_to_id[r_pay_method] = final_acc_id # 更新 mapping
+                                                # 初始化新帳戶餘額
+                                                updated_accounts[final_acc_id] = {'name': r_pay_method, 'balance': 0}
+
+                                        # 3. 寫入交易紀錄
+                                        record_data = {
+                                            'date': r_date,
+                                            'type': r_type,
+                                            'category': r_category,
+                                            'amount': r_amount,
+                                            'note': r_note,
+                                            'timestamp': datetime.datetime.now()
+                                        }
+                                        if final_acc_id:
+                                            record_data['account_id'] = final_acc_id
+                                            record_data['account_name'] = r_pay_method
+
+                                        add_record(db, user_id, record_data)
+
+                                        # 4. 計算餘額變動 (累加到暫存變數)
+                                        if final_acc_id:
+                                            acc_data = updated_accounts.get(final_acc_id, {'name': r_pay_method, 'balance': 0})
+                                            curr_bal = float(acc_data.get('balance', 0))
+                                            delta = r_amount * (-1.0 if r_type == '支出' else 1.0)
+                                            acc_data['balance'] = curr_bal + delta
+                                            updated_accounts[final_acc_id] = acc_data
+
+                                        success_count += 1
+                                    except Exception as e:
+                                        st.warning(f"跳過一筆錯誤資料: {e}")
+                                        continue
+                            
+                            # 5. 最後一次性更新帳戶餘額到資料庫
+                            if success_count > 0:
+                                update_bank_accounts(db, user_id, updated_accounts)
+                                st.success(f"✅ 成功匯入 {success_count} 筆資料！")
+                                st.cache_data.clear()
+                                import time
+                                time.sleep(1.5)
+                                st.rerun()
+
+                    except Exception as e:
+                        st.error(f"檔案讀取失敗: {e}")
+
     if df_records is None or df_records.empty:
         st.info("ℹ️ 目前沒有任何交易紀錄。")
         return
 
-    # --- 篩選器 ---
+    # --- 以下保持原有的篩選器與列表顯示程式碼 ---
     col1, col2, col3, col4 = st.columns([1, 1, 3, 1])
     
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
@@ -1126,7 +1236,7 @@ def display_records_list(db, user_id, df_records):
                 record_category = row.get('category', 'N/A')
                 record_amount = safe_float(row.get('amount', 0)) 
                 record_note = row.get('note', 'N/A')
-                record_account_name = row.get('account_name') # 獲取現有的支付方式
+                record_account_name = row.get('account_name')
             except KeyError as e:
                 st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
                 continue
@@ -1140,7 +1250,6 @@ def display_records_list(db, user_id, df_records):
 
                 st.markdown(f"**正在編輯：** `{(record_note or '')[:20]}...`")
                 
-                # 第一行：日期、類型、金額
                 edit_cols_1 = st.columns(3)
                 with edit_cols_1[0]:
                     default_date = safe_date(record_date_obj)
@@ -1150,11 +1259,9 @@ def display_records_list(db, user_id, df_records):
                 with edit_cols_1[2]:
                     new_amount = st.number_input("金額", min_value=0, value=safe_int(record_amount), step=1, format="%d", key=f"edit_amount_{record_id}")
                 
-                # --- 🔴 修改重點：第二行改為 3 欄，加入支付方式 ---
                 edit_cols_2 = st.columns([1.5, 1.5, 3]) 
                 
                 with edit_cols_2[0]:
-                    # 類別
                     category_options = CATEGORIES.get(new_type, [])
                     if new_type == '支出':
                         try:
@@ -1173,13 +1280,10 @@ def display_records_list(db, user_id, df_records):
                     new_category = st.selectbox("類別", options=category_options or ["未分類"], index=min(cat_index, max(len(category_options)-1, 0)), key=f"edit_cat_{record_id}")
 
                 with edit_cols_2[1]:
-                    # 支付方式 (新增)
-                    # 確保原紀錄的帳戶名稱有在選項中
                     current_options = list(base_payment_options)
                     if record_account_name and record_account_name not in current_options:
                         current_options.append(record_account_name)
                     
-                    # 計算 Index
                     pay_index = None
                     if record_account_name in current_options:
                         pay_index = current_options.index(record_account_name)
@@ -1187,16 +1291,14 @@ def display_records_list(db, user_id, df_records):
                     new_payment_method = st.selectbox(
                         "支付方式",
                         options=current_options,
-                        index=pay_index, # 若為 None 則不選 (Placeholder生效)
+                        index=pay_index, 
                         placeholder="選填...",
                         key=f"pay_select_{record_id}"
                     )
 
                 with edit_cols_2[2]:
-                    # 備註
                     new_note = st.text_area("備註", value=record_note or "", key=f"edit_note_{record_id}", height=60)
                 
-                # 按鈕列
                 btn_cols = st.columns([1,1,3])
                 save_clicked = btn_cols[0].button("💾 儲存", use_container_width=True, key=f"save_btn_{record_id}")
                 cancel_clicked = btn_cols[1].button("❌ 取消", use_container_width=True, key=f"cancel_btn_{record_id}")
@@ -1221,9 +1323,7 @@ def display_records_list(db, user_id, df_records):
                             'note': (new_note or "").strip() or "無備註",
                         }
                         
-                        # --- 🔴 修改重點：處理支付方式更新 ---
                         if new_payment_method:
-                            # 查找 ID，若無則建立新 ID (確保資料完整)
                             acc_id = name_to_id.get(new_payment_method)
                             if not acc_id:
                                 acc_id = str(uuid.uuid4())
@@ -1231,10 +1331,8 @@ def display_records_list(db, user_id, df_records):
                             new_data['account_name'] = new_payment_method
                             new_data['account_id'] = acc_id
                         else:
-                            # 清除欄位
                             new_data['account_name'] = firestore.DELETE_FIELD
                             new_data['account_id'] = firestore.DELETE_FIELD
-                        # --------------------------------
 
                         old_data = {'type': record_type, 'amount': record_amount}
                         update_record(db, user_id, record_id, new_data, old_data)
@@ -1242,7 +1340,6 @@ def display_records_list(db, user_id, df_records):
                         st.rerun()
 
             else:
-                # --- 瀏覽模式 (保持原樣，僅優化顯示) ---
                 if pd.isna(record_date_obj):
                     record_date_str = f"Error"
                 else:
@@ -1261,7 +1358,6 @@ def display_records_list(db, user_id, df_records):
                     row_cols[2].markdown(f"<span style='font-weight: bold; color: {color};'>{amount_sign} {record_amount:,.0f}</span>", unsafe_allow_html=True)
                     row_cols[3].write(record_type)
                     
-                    # 在備註後方顯示支付方式
                     display_note = record_note
                     if record_account_name:
                          display_note += f" ({record_account_name})"
