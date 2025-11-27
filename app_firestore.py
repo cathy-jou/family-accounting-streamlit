@@ -615,7 +615,7 @@ def display_dashboard(db, user_id):
         df['month_str'] = df['date'].dt.strftime('%Y-%m')
 
     # --- 2. 資產概況卡片區塊 (保持原樣) ---
-    st.markdown("### 📊 資產概況")
+    st.markdown("### 資產概況")
     
     today = datetime.date.today()
     this_month_str = today.strftime('%Y-%m')
@@ -639,7 +639,7 @@ def display_dashboard(db, user_id):
     st.markdown("---")
 
     # --- 3. 收支分析 ---
-    st.markdown("### 📈 收支趨勢分析")
+    st.markdown("### 統計分析")
 
     if df.empty:
         st.info("目前沒有交易紀錄，無法顯示圖表。")
@@ -765,7 +765,8 @@ def display_dashboard(db, user_id):
             pie_target = st.radio(
                 "分析維度", 
                 ["月總收入 v.s. 月總支出", "支出類別佔比", "收入類別佔比"],
-                key="pie_target_selector"
+                key="pie_target_selector",
+                horizontal=True
             )
 
         df_pie = pd.DataFrame()
