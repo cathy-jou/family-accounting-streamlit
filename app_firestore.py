@@ -650,8 +650,8 @@ def display_dashboard(db, user_id):
         
         # 1. 圖表類型 (置頂)
         chart_mode = st.radio(
-            "📊 圖表類型", 
-            options=["長條圖 (趨勢)", "圓餅圖 (佔比)"], 
+            "圖表類型", 
+            options=["長條圖", "圓餅圖"], 
             horizontal=True, 
             key="dashboard_chart_mode"
         )
@@ -685,7 +685,7 @@ def display_dashboard(db, user_id):
         default_end = month_options[-1]
 
         selected_range = st.select_slider(
-            "📅 選擇時間區間 (月)",
+            "時間區間",
             options=month_options,
             value=(default_start, default_end),
             key="dashboard_month_range"
@@ -707,7 +707,7 @@ def display_dashboard(db, user_id):
     # --- 圖表繪製 ---
     
     # === 模式 A: 長條圖 (趨勢) ===
-    if chart_mode == "長條圖 (趨勢)":
+    if chart_mode == "長條圖":
         c1, c2 = st.columns([1, 3])
         with c1:
             st.markdown(
