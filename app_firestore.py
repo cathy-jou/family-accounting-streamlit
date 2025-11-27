@@ -603,10 +603,10 @@ def convert_df_to_csv(df: pd.DataFrame):
 
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
-    """首頁儀表板：資產概況卡片 + 收支分析圖表 (修正：長條圖多選、圓餅圖欄位錯誤)"""
+    """首頁儀表板：資產概況卡片 + 收支分析圖表 (已修改：時間區間改為月份滑桿)"""
     
     # --- 1. 取得資料 ---
-    df = get_all_records(db, user_id) # 確保使用正確的函式名稱
+    df = get_all_records(db, user_id)
     current_balance = get_current_balance(db, user_id)
 
     # 確保日期格式正確
@@ -615,7 +615,7 @@ def display_dashboard(db, user_id):
         df['month_str'] = df['date'].dt.strftime('%Y-%m')
 
     # --- 2. 資產概況卡片區塊 (保持原樣) ---
-    st.markdown("### 資產概況")
+    st.markdown("### 📊 資產概況")
     
     today = datetime.date.today()
     this_month_str = today.strftime('%Y-%m')
@@ -639,7 +639,7 @@ def display_dashboard(db, user_id):
     st.markdown("---")
 
     # --- 3. 收支分析 ---
-    st.markdown("### 統計分析")
+    st.markdown("### 📈 收支趨勢分析")
 
     if df.empty:
         st.info("目前沒有交易紀錄，無法顯示圖表。")
@@ -650,33 +650,62 @@ def display_dashboard(db, user_id):
         col_ctrl1, col_ctrl2 = st.columns([1, 1])
         
         with col_ctrl1:
-            # 時間區間
-            first_day = today.replace(day=1)
-            start_default = first_day - datetime.timedelta(days=30*6)
-            date_range = st.date_input("時間區間", value=(start_default, today), max_value=today, key="dashboard_date_range")
+            # --- 🔴 修改開始：改用月份滑桿 ---
+            # 1. 計算月份範圍
+            start_bound = today - datetime.timedelta(days=365) # 預設顯示過去一年
+            if not df.empty and 'date' in df.columns:
+                min_date_db = df['date'].min().date()
+                if min_date_db < start_bound:
+                    start_bound = min_date_db.replace(day=1)
+            
+            # 2. 生成月份選項列表 (YYYY-MM)
+            # 使用 pandas 生成月份序列
+            month_idx = pd.date_range(start=start_bound.replace(day=1), end=today, freq='MS')
+            month_options = month_idx.strftime('%Y-%m').tolist()
+            
+            # 確保本月在選項中
+            curr_month_str = today.strftime('%Y-%m')
+            if curr_month_str not in month_options:
+                month_options.append(curr_month_str)
+            
+            # 去重並排序
+            month_options = sorted(list(set(month_options)))
+
+            # 3. 設定預設值 (最近 6 個月)
+            default_start = month_options[-6] if len(month_options) >= 6 else month_options[0]
+            default_end = month_options[-1]
+
+            # 4. 顯示滑桿
+            selected_range = st.select_slider(
+                "📅 選擇時間區間 (月)",
+                options=month_options,
+                value=(default_start, default_end),
+                key="dashboard_month_range"
+            )
+            # --- 🔴 修改結束 ---
         
         with col_ctrl2:
-            # 圖表類型
-            chart_mode = st.radio("圖表類型", options=["長條圖", "圓餅圖"], horizontal=True, key="dashboard_chart_mode")
+            chart_mode = st.radio("📊 圖表類型", options=["長條圖 (趨勢)", "圓餅圖 (佔比)"], horizontal=True, key="dashboard_chart_mode")
 
-    # 資料篩選
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        start_date, end_date = date_range
-        start_dt = pd.to_datetime(start_date)
-        end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        mask = (df['date'] >= start_dt) & (df['date'] <= end_dt)
+    # --- 🔴 修改開始：依月份字串篩選資料 ---
+    if isinstance(selected_range, tuple):
+        start_m, end_m = selected_range
+        mask = (df['month_str'] >= start_m) & (df['month_str'] <= end_m)
         df_filtered = df.loc[mask].copy()
     else:
-        df_filtered = df.copy()
+        # 單一月份
+        mask = (df['month_str'] == selected_range)
+        df_filtered = df.loc[mask].copy()
+    # --- 🔴 修改結束 ---
 
     if df_filtered.empty:
         st.info("所選區間無資料。")
         return
 
-    # --- 圖表繪製 ---
+    # --- 圖表繪製 (以下保持不變) ---
     
-    # === 模式 A: 長條圖 (趨勢) - 修改：多選且並排顯示 ===
-    if chart_mode == "長條圖":
+    # === 模式 A: 長條圖 (趨勢) ===
+    if chart_mode == "長條圖 (趨勢)":
         c1, c2 = st.columns([1, 3])
         with c1:
             st.markdown(
@@ -693,45 +722,41 @@ def display_dashboard(db, user_id):
                     line-height: 1.5;
                 ">
                 顯示項目
-
                 </div>
                 """, 
                 unsafe_allow_html=True
             )
-            # 修改：改為 multiselect 以支援同時選取
+            
             selected_types = st.multiselect(
                 "顯示項目", 
                 ["支出", "收入"], 
                 default=["支出", "收入"],
                 key="bar_target_selector",
-                label_visibility="collapsed"
+                label_visibility="collapsed" 
             )
         
         if not selected_types:
             st.warning("請至少選擇一種項目")
         else:
-            # 資料處理
             df_bar = df_filtered[df_filtered['type'].isin(selected_types)].groupby(['month_str', 'type'])['amount'].sum().reset_index()
             
             if df_bar.empty:
                 st.info("此區間無相關紀錄。")
             else:
-                # 定義顏色對應
                 domain = ['支出', '收入']
-                range_ = ['#dc3545', '#28a745'] # 紅色支出，綠色收入
+                range_ = ['#dc3545', '#28a745'] 
 
                 bar_chart = alt.Chart(df_bar).mark_bar().encode(
                     x=alt.X('month_str', title='月份', axis=alt.Axis(labelAngle=-45)),
                     y=alt.Y('amount', title='金額 (NTD)'),
                     color=alt.Color('type', scale=alt.Scale(domain=domain, range=range_), title='類型'),
-                    # 修改：加入 xOffset 讓長條圖並排顯示 (Grouped Bar Chart)
                     xOffset='type',
                     tooltip=['month_str', 'type', alt.Tooltip('amount', format=',.0f', title='金額')]
                 ).properties(height=300)
                 
                 st.altair_chart(bar_chart, use_container_width=True)
 
-    # === 模式 B: 圓餅圖 (佔比) - 修改：修復 Tooltip 欄位錯誤 ===
+    # === 模式 B: 圓餅圖 (佔比) ===
     else:
         c1, c2 = st.columns([1, 3])
         with c1:
@@ -743,20 +768,18 @@ def display_dashboard(db, user_id):
 
         df_pie = pd.DataFrame()
         color_enc = None
-        tooltip_enc = [] # 動態設定 tooltip 以避免欄位錯誤
+        tooltip_enc = [] 
 
         if pie_target == "月總收入 v.s. 月總支出":
             df_pie = df_filtered.groupby('type')['amount'].sum().reset_index()
             domain = ['支出', '收入']
             range_ = ['#dc3545', '#28a745']
             color_enc = alt.Color('type', scale=alt.Scale(domain=domain, range=range_), title='類型')
-            # 修正：這裡只有 type 欄位，沒有 category
             tooltip_enc = ['type', alt.Tooltip('amount', format=',.0f', title='金額')]
             
         elif pie_target == "支出類別佔比":
             df_pie = df_filtered[df_filtered['type'] == '支出'].groupby('category')['amount'].sum().reset_index()
             color_enc = alt.Color('category', title='類別', scale=alt.Scale(scheme='category20b'))
-            # 修正：這裡有 category，但 type 固定，不需要顯示 type
             tooltip_enc = ['category', alt.Tooltip('amount', format=',.0f', title='金額')]
 
         elif pie_target == "收入類別佔比":
@@ -771,14 +794,13 @@ def display_dashboard(db, user_id):
             
             pie = base.mark_arc(outerRadius=100).encode(
                 color=color_enc,
-                tooltip=tooltip_enc, # 使用動態設定的 tooltip
-                order=alt.Order("amount", sort="descending") # 確保排序一致
+                tooltip=tooltip_enc,
+                order=alt.Order("amount", sort="descending") 
             )
             
-            # 文字標籤
             text = base.mark_text(radius=120).encode(
                 text=alt.Text("amount", format=".0f"), 
-                order=alt.Order("amount", sort="descending"), # 確保文字與區塊排序一致
+                order=alt.Order("amount", sort="descending"),
                 color=alt.value("black")  
             )
             
