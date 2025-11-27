@@ -1031,7 +1031,7 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表 (📌 修正版：將上傳功能移至下載按鈕左側)"""
+    """顯示交易紀錄列表 (📌 修正版：移除範例按鈕，將下載紀錄格式統一為中文以兼作範例)"""
     
     # --- 1. 預先載入支付方式選項 ---
     try:
@@ -1050,8 +1050,8 @@ def display_records_list(db, user_id, df_records):
     if df_records is None:
         df_records = pd.DataFrame()
 
-    # --- 3. 篩選與操作區塊 (Filter & Actions) ---
-    # 重新規劃欄位：月份(1.5) | 類型(1) | 空白(0.5) | 上傳區(2.5) | 下載區(1.5)
+    # --- 3. 篩選與操作區塊 ---
+    # 欄位規劃：月份(1.5) | 類型(1) | 空白(0.5) | 上傳區(2.5) | 下載區(1.5)
     col1, col2, col3, col_import, col4 = st.columns([1.5, 1, 0.5, 2.5, 1.5])
     
     # [Col 1] 月份篩選
@@ -1074,11 +1074,8 @@ def display_records_list(db, user_id, df_records):
     # [Col 2] 類型篩選
     type_filter = col2.selectbox("類型", options=['全部', '收入', '支出'], key='type_filter', label_visibility="collapsed")
     
-    # [Col 3] 空白佔位
-    
-    # [Col 4] 上傳/匯入 Excel (包含範例下載)
+    # [Col 4] 上傳 Excel (位於下載按鈕左側)
     with col_import:
-        # 為了節省空間，我們將上傳功能緊湊排列
         uploaded_file = st.file_uploader(
             "上傳 Excel/CSV", 
             type=['xlsx', 'xls', 'csv'], 
@@ -1086,9 +1083,9 @@ def display_records_list(db, user_id, df_records):
             key="history_file_uploader"
         )
         
-        # 處理匯入邏輯 (當檔案被上傳時自動執行或顯示確認鈕)
+        # 處理匯入邏輯
         if uploaded_file is not None:
-            # 顯示一個小的確認按鈕以防誤觸
+            # 顯示確認按鈕
             if st.button("確認匯入", key="btn_confirm_import_inline", use_container_width=True):
                 try:
                     if uploaded_file.name.endswith('.csv'):
@@ -1157,14 +1154,10 @@ def display_records_list(db, user_id, df_records):
                             st.rerun()
                 except Exception as e:
                     st.error(f"錯誤: {e}")
-        else:
-            # 沒有上傳檔案時，顯示下載範例連結 (避免按鈕太多太雜，改用 Link 或小按鈕)
-            example_data = pd.DataFrame([{'日期': '2023-01-01', '類型': '支出', '類別': '食', '金額': 100, '支付方式': '現金', '備註': '範例'}])
-            csv_ex = convert_df_to_csv(example_data)
-            st.download_button("下載匯入範例", data=csv_ex, file_name='template.csv', mime='text/csv', key='btn_dl_template_inline', use_container_width=True)
+        # 🔴 修改重點：移除了「下載範例」的按鈕，讓介面更乾淨
 
     
-    # --- 資料篩選與下載 (Export) ---
+    # --- 資料篩選 ---
     df_filtered = df_records.copy()
     if selected_month:
         try:
@@ -1186,7 +1179,22 @@ def display_records_list(db, user_id, df_records):
     # [Col 5] 下載歷史紀錄按鈕
     with col4:
         if not df_filtered.empty:
-            csv = convert_df_to_csv(df_filtered) 
+            # 🔴 修改重點：將輸出的 CSV 欄位名稱改為中文，使其與匯入格式相容
+            export_mapping = {
+                'date': '日期',
+                'type': '類型',
+                'category': '類別',
+                'amount': '金額',
+                'note': '備註',
+                'account_name': '支付方式'
+            }
+            # 重新命名欄位
+            df_export = df_filtered.rename(columns=export_mapping)
+            # 只保留需要的欄位 (若欄位存在)
+            cols_to_keep = [c for c in export_mapping.values() if c in df_export.columns]
+            df_export = df_export[cols_to_keep]
+
+            csv = convert_df_to_csv(df_export) 
             file_name_month = selected_month if selected_month else "all"
             if csv:
                 st.download_button(
@@ -1195,7 +1203,8 @@ def display_records_list(db, user_id, df_records):
                     file_name=f'交易紀錄_{file_name_month}.csv',
                     mime='text/csv',
                     key='download_csv_button',
-                    use_container_width=True
+                    use_container_width=True,
+                    help="下載後的檔案格式與匯入格式相同，可作為備份或範本使用"
                 )
         else:
             st.info("無紀錄")
@@ -1206,7 +1215,7 @@ def display_records_list(db, user_id, df_records):
     for col, header in zip(header_cols, headers):
         col.markdown(f"**{header}**")
 
-    # --- 顯示與編輯紀錄 ---
+    # --- 顯示與編輯紀錄 (維持原樣) ---
     if df_filtered.empty:
         st.info("ℹ️ 無符合篩選條件的交易紀錄。")
     else:
