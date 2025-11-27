@@ -1031,7 +1031,7 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：加入 Excel 匯入功能)"""
+    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：優化上傳按鈕介面，隱藏標籤)"""
     
     # --- 1. 預先載入支付方式選項 ---
     try:
@@ -1059,14 +1059,19 @@ def display_records_list(db, user_id, df_records):
             ])
             st.download_button(
                 label="📄 下載 Excel 範例檔",
-                data=convert_df_to_csv(example_data), # 這裡為了方便直接用 CSV，Excel 需額外 dependency，csv 通用性高
+                data=convert_df_to_csv(example_data),
                 file_name='import_template.csv',
                 mime='text/csv',
                 key='btn_download_template',
                 help="請下載此範例，填入資料後再上傳 (支援 CSV 格式)"
             )
             
-            uploaded_file = st.file_uploader("選擇檔案 (CSV/Excel)", type=['xlsx', 'xls', 'csv'])
+            # --- 🔴 修改重點：加入 label_visibility="collapsed" 以隱藏文字 ---
+            uploaded_file = st.file_uploader(
+                "選擇檔案", # 此文字將被隱藏，僅供螢幕閱讀器使用
+                type=['xlsx', 'xls', 'csv'], 
+                label_visibility="collapsed" 
+            )
             
             if uploaded_file is not None:
                 if st.button("確認匯入", key="btn_confirm_import"):
@@ -1105,14 +1110,13 @@ def display_records_list(db, user_id, df_records):
                                         # 2. 處理支付方式 & ID
                                         final_acc_id = None
                                         if r_pay_method:
-                                            # 檢查是否已存在於目前的 mapping (包含剛建立的)
+                                            # 檢查是否已存在
                                             if r_pay_method in name_to_id:
                                                 final_acc_id = name_to_id[r_pay_method]
                                             else:
                                                 # 建立新帳戶 ID
                                                 final_acc_id = str(uuid.uuid4())
-                                                name_to_id[r_pay_method] = final_acc_id # 更新 mapping
-                                                # 初始化新帳戶餘額
+                                                name_to_id[r_pay_method] = final_acc_id
                                                 updated_accounts[final_acc_id] = {'name': r_pay_method, 'balance': 0}
 
                                         # 3. 寫入交易紀錄
@@ -1130,7 +1134,7 @@ def display_records_list(db, user_id, df_records):
 
                                         add_record(db, user_id, record_data)
 
-                                        # 4. 計算餘額變動 (累加到暫存變數)
+                                        # 4. 計算餘額變動
                                         if final_acc_id:
                                             acc_data = updated_accounts.get(final_acc_id, {'name': r_pay_method, 'balance': 0})
                                             curr_bal = float(acc_data.get('balance', 0))
@@ -1143,7 +1147,7 @@ def display_records_list(db, user_id, df_records):
                                         st.warning(f"跳過一筆錯誤資料: {e}")
                                         continue
                             
-                            # 5. 最後一次性更新帳戶餘額到資料庫
+                            # 5. 更新餘額
                             if success_count > 0:
                                 update_bank_accounts(db, user_id, updated_accounts)
                                 st.success(f"✅ 成功匯入 {success_count} 筆資料！")
