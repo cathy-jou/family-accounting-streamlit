@@ -1031,7 +1031,7 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：優化上傳按鈕介面，隱藏標籤)"""
+    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：CSS 強制隱藏上傳元件內的提示文字，解決重疊問題)"""
     
     # --- 1. 預先載入支付方式選項 ---
     try:
@@ -1051,6 +1051,27 @@ def display_records_list(db, user_id, df_records):
         st.markdown("## 歷史紀錄")
 
     with col_upload:
+        # 🔴 修改重點：注入 CSS 來隱藏 file_uploader 內部的提示文字 (解決重疊與不美觀)
+        st.markdown(
+            """
+            <style>
+            /* 針對此區塊的 file_uploader 隱藏說明文字 */
+            [data-testid='stFileUploader'] section > div > div > span {
+                display: none;
+            }
+            [data-testid='stFileUploader'] section > div > div > small {
+                display: none;
+            }
+            /* 調整一下 padding 讓它看起來更像一個按鈕區域 */
+            [data-testid='stFileUploader'] section {
+                padding: 10px;
+                min-height: 0px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
         with st.expander("📥 匯入 Excel 舊資料", expanded=False):
             # 範例下載
             example_data = pd.DataFrame([
@@ -1066,11 +1087,11 @@ def display_records_list(db, user_id, df_records):
                 help="請下載此範例，填入資料後再上傳 (支援 CSV 格式)"
             )
             
-            # --- 🔴 修改重點：加入 label_visibility="collapsed" 以隱藏文字 ---
+            # 上傳元件 (CSS 會作用於此)
             uploaded_file = st.file_uploader(
-                "選擇檔案", # 此文字將被隱藏，僅供螢幕閱讀器使用
+                "選擇檔案", 
                 type=['xlsx', 'xls', 'csv'], 
-                label_visibility="collapsed" 
+                label_visibility="collapsed"
             )
             
             if uploaded_file is not None:
@@ -1088,12 +1109,10 @@ def display_records_list(db, user_id, df_records):
                             st.error("❌ 格式錯誤：缺少必要欄位 (日期, 類型, 類別, 金額)")
                         else:
                             success_count = 0
-                            # 準備批次更新帳戶餘額
                             updated_accounts = bank_accounts.copy()
                             
                             with st.spinner("正在匯入資料..."):
                                 for _, row in df_import.iterrows():
-                                    # 1. 解析資料
                                     try:
                                         r_date = pd.to_datetime(row['日期']).date()
                                         r_type = row['類型']
@@ -1107,19 +1126,15 @@ def display_records_list(db, user_id, df_records):
                                         r_pay_method = str(row.get('支付方式', '')).strip()
                                         if r_pay_method == 'nan': r_pay_method = ''
 
-                                        # 2. 處理支付方式 & ID
                                         final_acc_id = None
                                         if r_pay_method:
-                                            # 檢查是否已存在
                                             if r_pay_method in name_to_id:
                                                 final_acc_id = name_to_id[r_pay_method]
                                             else:
-                                                # 建立新帳戶 ID
                                                 final_acc_id = str(uuid.uuid4())
                                                 name_to_id[r_pay_method] = final_acc_id
                                                 updated_accounts[final_acc_id] = {'name': r_pay_method, 'balance': 0}
 
-                                        # 3. 寫入交易紀錄
                                         record_data = {
                                             'date': r_date,
                                             'type': r_type,
@@ -1134,7 +1149,6 @@ def display_records_list(db, user_id, df_records):
 
                                         add_record(db, user_id, record_data)
 
-                                        # 4. 計算餘額變動
                                         if final_acc_id:
                                             acc_data = updated_accounts.get(final_acc_id, {'name': r_pay_method, 'balance': 0})
                                             curr_bal = float(acc_data.get('balance', 0))
@@ -1147,7 +1161,6 @@ def display_records_list(db, user_id, df_records):
                                         st.warning(f"跳過一筆錯誤資料: {e}")
                                         continue
                             
-                            # 5. 更新餘額
                             if success_count > 0:
                                 update_bank_accounts(db, user_id, updated_accounts)
                                 st.success(f"✅ 成功匯入 {success_count} 筆資料！")
