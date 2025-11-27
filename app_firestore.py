@@ -1031,7 +1031,7 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表，包含篩選、刪除 (📌 修正版：CSS 強制隱藏上傳元件內的提示文字，解決重疊問題)"""
+    """顯示交易紀錄列表 (📌 修正版：上傳移至左側 + CSS 強制修復重疊問題)"""
     
     # --- 1. 預先載入支付方式選項 ---
     try:
@@ -1051,21 +1051,23 @@ def display_records_list(db, user_id, df_records):
         st.markdown("## 歷史紀錄")
 
     with col_upload:
-        # 🔴 修改重點：注入 CSS 來隱藏 file_uploader 內部的提示文字 (解決重疊與不美觀)
+        # 🔴 修改重點 1: 更新 CSS，更精準地隱藏 Dropzone 內的文字，只留按鈕
         st.markdown(
             """
             <style>
-            /* 針對此區塊的 file_uploader 隱藏說明文字 */
-            [data-testid='stFileUploader'] section > div > div > span {
-                display: none;
+            /* 針對 File Uploader 的 Dropzone 區域 */
+            [data-testid='stFileUploaderDropzone'] {
+                min-height: 0px !important;
+                padding: 10px !important;
             }
-            [data-testid='stFileUploader'] section > div > div > small {
-                display: none;
+            /* 隱藏 Dropzone 內部的所有提示文字 span 和 small */
+            [data-testid='stFileUploaderDropzone'] div div span,
+            [data-testid='stFileUploaderDropzone'] div div small {
+                display: none !important;
             }
-            /* 調整一下 padding 讓它看起來更像一個按鈕區域 */
-            [data-testid='stFileUploader'] section {
-                padding: 10px;
-                min-height: 0px;
+            /* 讓內部的 Browse files 按鈕置中或填滿，視容器而定 */
+            [data-testid='stFileUploaderDropzone'] button {
+                width: 100%;
             }
             </style>
             """,
@@ -1073,37 +1075,43 @@ def display_records_list(db, user_id, df_records):
         )
 
         with st.expander("📥 匯入 Excel 舊資料", expanded=False):
-            # 範例下載
-            example_data = pd.DataFrame([
-                {'日期': '2023-01-01', '類型': '支出', '類別': '食', '金額': 100, '支付方式': '現金', '備註': '早餐範例'},
-                {'日期': '2023-01-02', '類型': '收入', '類別': '薪資', '金額': 50000, '支付方式': '銀行帳戶', '備註': '薪水範例'}
-            ])
-            st.download_button(
-                label="📄 下載 Excel 範例檔",
-                data=convert_df_to_csv(example_data),
-                file_name='import_template.csv',
-                mime='text/csv',
-                key='btn_download_template',
-                help="請下載此範例，填入資料後再上傳 (支援 CSV 格式)"
-            )
+            # 🔴 修改重點 2: 使用 Columns 將上傳(左) 與 下載(右) 並排
+            c_up, c_down = st.columns([1.5, 1])
             
-            # 上傳元件 (CSS 會作用於此)
-            uploaded_file = st.file_uploader(
-                "選擇檔案", 
-                type=['xlsx', 'xls', 'csv'], 
-                label_visibility="collapsed"
-            )
+            with c_up:
+                # 上傳元件 (放在左側)
+                uploaded_file = st.file_uploader(
+                    "選擇檔案", 
+                    type=['xlsx', 'xls', 'csv'], 
+                    label_visibility="collapsed"
+                )
+
+            with c_down:
+                # 為了讓按鈕在垂直方向上對齊，加一點空白
+                st.write("") 
+                # 下載範例 (放在右側)
+                example_data = pd.DataFrame([
+                    {'日期': '2023-01-01', '類型': '支出', '類別': '食', '金額': 100, '支付方式': '現金', '備註': '早餐範例'},
+                    {'日期': '2023-01-02', '類型': '收入', '類別': '薪資', '金額': 50000, '支付方式': '銀行帳戶', '備註': '薪水範例'}
+                ])
+                st.download_button(
+                    label="📄 下載範例",
+                    data=convert_df_to_csv(example_data),
+                    file_name='import_template.csv',
+                    mime='text/csv',
+                    key='btn_download_template',
+                    use_container_width=True # 讓按鈕填滿欄位寬度，較整齊
+                )
             
+            # 確認按鈕 (放在下方)
             if uploaded_file is not None:
-                if st.button("確認匯入", key="btn_confirm_import"):
+                if st.button("確認匯入", key="btn_confirm_import", use_container_width=True):
                     try:
-                        # 讀取檔案
                         if uploaded_file.name.endswith('.csv'):
                             df_import = pd.read_csv(uploaded_file)
                         else:
                             df_import = pd.read_excel(uploaded_file)
                         
-                        # 欄位檢查
                         required_cols = ['日期', '類型', '類別', '金額']
                         if not all(col in df_import.columns for col in required_cols):
                             st.error("❌ 格式錯誤：缺少必要欄位 (日期, 類型, 類別, 金額)")
