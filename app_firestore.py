@@ -760,7 +760,8 @@ def display_dashboard(db, user_id):
 
     # === 模式 B: 圓餅圖 (佔比) ===
     else:
-        c1, c2 = st.columns([1, 3])
+        # c1, c2 = st.columns([1, 3])
+        c1, c2 = st.columns([1, 1])
         with c1:
             pie_target = st.radio(
                 "分析維度", 
