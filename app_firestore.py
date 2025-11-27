@@ -603,7 +603,7 @@ def convert_df_to_csv(df: pd.DataFrame):
 
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
-    """首頁儀表板：資產概況卡片 + 收支分析圖表 (已修改：上下佈局、預設13個月)"""
+    """首頁儀表板：資產概況卡片 + 收支分析圖表 (已修改：新增時間區間快捷選項)"""
     
     # --- 1. 取得資料 ---
     df = get_all_records(db, user_id)
@@ -615,7 +615,7 @@ def display_dashboard(db, user_id):
         df['month_str'] = df['date'].dt.strftime('%Y-%m')
 
     # --- 2. 資產概況卡片區塊 (保持原樣) ---
-    st.markdown("### 資產概況")
+    st.markdown("### 📊 資產概況")
     
     today = datetime.date.today()
     this_month_str = today.strftime('%Y-%m')
@@ -639,57 +639,86 @@ def display_dashboard(db, user_id):
     st.markdown("---")
 
     # --- 3. 收支分析 ---
-    st.markdown("### 統計分析")
+    st.markdown("### 📈 收支趨勢分析")
 
     if df.empty:
         st.info("目前沒有交易紀錄，無法顯示圖表。")
         return
 
-    # 介面控制區 (改為上下排列)
+    # 介面控制區
     with st.container(border=True):
         
         # 1. 圖表類型 (置頂)
         chart_mode = st.radio(
-            "圖表類型", 
-            options=["長條圖", "圓餅圖"], 
+            "📊 圖表類型", 
+            options=["長條圖 (趨勢)", "圓餅圖 (佔比)"], 
             horizontal=True, 
             key="dashboard_chart_mode"
         )
         
-        # 增加一點間距
         st.write("")
 
-        # 2. 時間區間 (置底)
-        # 計算月份範圍：為了顯示 13 個月，我們需確保選項清單夠長 (400天約 > 13個月)
+        # 2. 時間區間 (快捷按鈕)
+        # 🔴 修改開始：新增快捷選項 Radio
+        period_mode = st.radio(
+            "📅 時間區間", 
+            options=["最近 3 個月", "最近 6 個月", "今年", "彈性區間"],
+            index=1, # 預設最近 6 個月
+            horizontal=True,
+            key="dashboard_period_mode"
+        )
+
+        # 準備月份列表 (供計算與滑桿使用)
         start_bound = today - datetime.timedelta(days=400) 
         if not df.empty and 'date' in df.columns:
             min_date_db = df['date'].min().date()
-            # 如果資料庫資料比 400 天前還早，就用資料庫最早日期，否則用 400 天前
             if min_date_db < start_bound:
                 start_bound = min_date_db.replace(day=1)
         
-        # 生成月份選項列表
         month_idx = pd.date_range(start=start_bound.replace(day=1), end=today, freq='MS')
         month_options = month_idx.strftime('%Y-%m').tolist()
         
-        # 確保本月在選項中
         curr_month_str = today.strftime('%Y-%m')
         if curr_month_str not in month_options:
             month_options.append(curr_month_str)
-        
         month_options = sorted(list(set(month_options)))
 
-        # 設定預設值 (最近 13 個月)
-        # 若選項不足 13 個月，則全選
-        default_start = month_options[-13] if len(month_options) >= 13 else month_options[0]
-        default_end = month_options[-1]
-
-        selected_range = st.select_slider(
-            "時間區間",
-            options=month_options,
-            value=(default_start, default_end),
-            key="dashboard_month_range"
-        )
+        # 決定最終篩選範圍
+        selected_range = None
+        
+        if period_mode == "彈性區間":
+            # 只有選擇彈性區間時，才顯示滑桿
+            st.write("") # 增加一點間距
+            default_start = month_options[-13] if len(month_options) >= 13 else month_options[0]
+            default_end = month_options[-1]
+            
+            selected_range = st.select_slider(
+                "選擇範圍", # 標題可省略或保留
+                options=month_options,
+                value=(default_start, default_end),
+                key="dashboard_month_range",
+                label_visibility="collapsed" # 隱藏標題讓介面更簡潔
+            )
+        else:
+            # 計算固定區間
+            end_str = curr_month_str
+            start_str = end_str # 預設
+            
+            curr_date = pd.to_datetime(today)
+            
+            if period_mode == "最近 3 個月":
+                # 本月 + 前 2 個月
+                s_date = curr_date - pd.DateOffset(months=2)
+                start_str = s_date.strftime('%Y-%m')
+            elif period_mode == "最近 6 個月":
+                # 本月 + 前 5 個月
+                s_date = curr_date - pd.DateOffset(months=5)
+                start_str = s_date.strftime('%Y-%m')
+            elif period_mode == "今年":
+                start_str = f"{curr_date.year}-01"
+            
+            selected_range = (start_str, end_str)
+        # 🔴 修改結束
 
     # --- 資料篩選 ---
     if isinstance(selected_range, tuple):
@@ -701,13 +730,13 @@ def display_dashboard(db, user_id):
         df_filtered = df.loc[mask].copy()
 
     if df_filtered.empty:
-        st.info("所選區間無資料。")
+        st.info(f"所選區間 ({selected_range[0]} ~ {selected_range[1]}) 無資料。")
         return
 
-    # --- 圖表繪製 ---
+    # --- 圖表繪製 (保持不變) ---
     
     # === 模式 A: 長條圖 (趨勢) ===
-    if chart_mode == "長條圖":
+    if chart_mode == "長條圖 (趨勢)":
         c1, c2 = st.columns([1, 3])
         with c1:
             st.markdown(
@@ -760,14 +789,12 @@ def display_dashboard(db, user_id):
 
     # === 模式 B: 圓餅圖 (佔比) ===
     else:
-        # c1, c2 = st.columns([1, 3])
-        c1, c2 = st.columns([1, 1])
+        c1, c2 = st.columns([1, 3])
         with c1:
             pie_target = st.radio(
                 "分析維度", 
                 ["月總收入 v.s. 月總支出", "支出類別佔比", "收入類別佔比"],
-                key="pie_target_selector",
-                horizontal=True
+                key="pie_target_selector"
             )
 
         df_pie = pd.DataFrame()
