@@ -603,7 +603,7 @@ def convert_df_to_csv(df: pd.DataFrame):
 
 # --- 6. UI 組件 ---
 def display_dashboard(db, user_id):
-    """首頁儀表板：資產概況卡片 + 收支分析圖表 (已修改：時間區間改為月份滑桿)"""
+    """首頁儀表板：資產概況卡片 + 收支分析圖表 (已修改：上下佈局、預設13個月)"""
     
     # --- 1. 取得資料 ---
     df = get_all_records(db, user_id)
@@ -645,64 +645,66 @@ def display_dashboard(db, user_id):
         st.info("目前沒有交易紀錄，無法顯示圖表。")
         return
 
-    # 介面控制區
+    # 介面控制區 (改為上下排列)
     with st.container(border=True):
-        col_ctrl1, col_ctrl2 = st.columns([1, 1])
         
-        with col_ctrl1:
-            # --- 🔴 修改開始：改用月份滑桿 ---
-            # 1. 計算月份範圍
-            start_bound = today - datetime.timedelta(days=365) # 預設顯示過去一年
-            if not df.empty and 'date' in df.columns:
-                min_date_db = df['date'].min().date()
-                if min_date_db < start_bound:
-                    start_bound = min_date_db.replace(day=1)
-            
-            # 2. 生成月份選項列表 (YYYY-MM)
-            # 使用 pandas 生成月份序列
-            month_idx = pd.date_range(start=start_bound.replace(day=1), end=today, freq='MS')
-            month_options = month_idx.strftime('%Y-%m').tolist()
-            
-            # 確保本月在選項中
-            curr_month_str = today.strftime('%Y-%m')
-            if curr_month_str not in month_options:
-                month_options.append(curr_month_str)
-            
-            # 去重並排序
-            month_options = sorted(list(set(month_options)))
-
-            # 3. 設定預設值 (最近 6 個月)
-            default_start = month_options[-6] if len(month_options) >= 6 else month_options[0]
-            default_end = month_options[-1]
-
-            # 4. 顯示滑桿
-            selected_range = st.select_slider(
-                "📅 選擇時間區間 (月)",
-                options=month_options,
-                value=(default_start, default_end),
-                key="dashboard_month_range"
-            )
-            # --- 🔴 修改結束 ---
+        # 1. 圖表類型 (置頂)
+        chart_mode = st.radio(
+            "📊 圖表類型", 
+            options=["長條圖 (趨勢)", "圓餅圖 (佔比)"], 
+            horizontal=True, 
+            key="dashboard_chart_mode"
+        )
         
-        with col_ctrl2:
-            chart_mode = st.radio("📊 圖表類型", options=["長條圖 (趨勢)", "圓餅圖 (佔比)"], horizontal=True, key="dashboard_chart_mode")
+        # 增加一點間距
+        st.write("")
 
-    # --- 🔴 修改開始：依月份字串篩選資料 ---
+        # 2. 時間區間 (置底)
+        # 計算月份範圍：為了顯示 13 個月，我們需確保選項清單夠長 (400天約 > 13個月)
+        start_bound = today - datetime.timedelta(days=400) 
+        if not df.empty and 'date' in df.columns:
+            min_date_db = df['date'].min().date()
+            # 如果資料庫資料比 400 天前還早，就用資料庫最早日期，否則用 400 天前
+            if min_date_db < start_bound:
+                start_bound = min_date_db.replace(day=1)
+        
+        # 生成月份選項列表
+        month_idx = pd.date_range(start=start_bound.replace(day=1), end=today, freq='MS')
+        month_options = month_idx.strftime('%Y-%m').tolist()
+        
+        # 確保本月在選項中
+        curr_month_str = today.strftime('%Y-%m')
+        if curr_month_str not in month_options:
+            month_options.append(curr_month_str)
+        
+        month_options = sorted(list(set(month_options)))
+
+        # 設定預設值 (最近 13 個月)
+        # 若選項不足 13 個月，則全選
+        default_start = month_options[-13] if len(month_options) >= 13 else month_options[0]
+        default_end = month_options[-1]
+
+        selected_range = st.select_slider(
+            "📅 選擇時間區間 (月)",
+            options=month_options,
+            value=(default_start, default_end),
+            key="dashboard_month_range"
+        )
+
+    # --- 資料篩選 ---
     if isinstance(selected_range, tuple):
         start_m, end_m = selected_range
         mask = (df['month_str'] >= start_m) & (df['month_str'] <= end_m)
         df_filtered = df.loc[mask].copy()
     else:
-        # 單一月份
         mask = (df['month_str'] == selected_range)
         df_filtered = df.loc[mask].copy()
-    # --- 🔴 修改結束 ---
 
     if df_filtered.empty:
         st.info("所選區間無資料。")
         return
 
-    # --- 圖表繪製 (以下保持不變) ---
+    # --- 圖表繪製 ---
     
     # === 模式 A: 長條圖 (趨勢) ===
     if chart_mode == "長條圖 (趨勢)":
