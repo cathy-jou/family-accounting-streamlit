@@ -1031,7 +1031,7 @@ def get_all_categories(db: firestore.Client, user_id: str) -> list:
 
 
 def display_records_list(db, user_id, df_records):
-    """顯示交易紀錄列表 (📌 修正版：上傳移至左側 + CSS 強制修復重疊問題)"""
+    """顯示交易紀錄列表 (📌 修正版：將上傳功能移至下載按鈕左側)"""
     
     # --- 1. 預先載入支付方式選項 ---
     try:
@@ -1044,151 +1044,18 @@ def display_records_list(db, user_id, df_records):
     existing_names = list(name_to_id.keys())
     base_payment_options = default_methods + sorted([n for n in existing_names if n not in default_methods])
 
-    # --- 2. 標題與匯入區塊 (Top-Right) ---
-    col_header, col_upload = st.columns([2, 1.5])
+    # --- 2. 標題 ---
+    st.markdown("## 歷史紀錄")
+
+    if df_records is None:
+        df_records = pd.DataFrame()
+
+    # --- 3. 篩選與操作區塊 (Filter & Actions) ---
+    # 重新規劃欄位：月份(1.5) | 類型(1) | 空白(0.5) | 上傳區(2.5) | 下載區(1.5)
+    col1, col2, col3, col_import, col4 = st.columns([1.5, 1, 0.5, 2.5, 1.5])
     
-    with col_header:
-        st.markdown("## 歷史紀錄")
-
-    with col_upload:
-        # 🔴 修改重點 1: 更新 CSS，更精準地隱藏 Dropzone 內的文字，只留按鈕
-        st.markdown(
-            """
-            <style>
-            /* 針對 File Uploader 的 Dropzone 區域 */
-            [data-testid='stFileUploaderDropzone'] {
-                min-height: 0px !important;
-                padding: 10px !important;
-            }
-            /* 隱藏 Dropzone 內部的所有提示文字 span 和 small */
-            [data-testid='stFileUploaderDropzone'] div div span,
-            [data-testid='stFileUploaderDropzone'] div div small {
-                display: none !important;
-            }
-            /* 讓內部的 Browse files 按鈕置中或填滿，視容器而定 */
-            [data-testid='stFileUploaderDropzone'] button {
-                width: 100%;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        with st.expander("📥 匯入 Excel 舊資料", expanded=False):
-            # 🔴 修改重點 2: 使用 Columns 將上傳(左) 與 下載(右) 並排
-            c_up, c_down = st.columns([1.5, 1])
-            
-            with c_up:
-                # 上傳元件 (放在左側)
-                uploaded_file = st.file_uploader(
-                    "選擇檔案", 
-                    type=['xlsx', 'xls', 'csv'], 
-                    label_visibility="collapsed"
-                )
-
-            with c_down:
-                # 為了讓按鈕在垂直方向上對齊，加一點空白
-                st.write("") 
-                # 下載範例 (放在右側)
-                example_data = pd.DataFrame([
-                    {'日期': '2023-01-01', '類型': '支出', '類別': '食', '金額': 100, '支付方式': '現金', '備註': '早餐範例'},
-                    {'日期': '2023-01-02', '類型': '收入', '類別': '薪資', '金額': 50000, '支付方式': '銀行帳戶', '備註': '薪水範例'}
-                ])
-                st.download_button(
-                    label="📄 下載範例",
-                    data=convert_df_to_csv(example_data),
-                    file_name='import_template.csv',
-                    mime='text/csv',
-                    key='btn_download_template',
-                    use_container_width=True # 讓按鈕填滿欄位寬度，較整齊
-                )
-            
-            # 確認按鈕 (放在下方)
-            if uploaded_file is not None:
-                if st.button("確認匯入", key="btn_confirm_import", use_container_width=True):
-                    try:
-                        if uploaded_file.name.endswith('.csv'):
-                            df_import = pd.read_csv(uploaded_file)
-                        else:
-                            df_import = pd.read_excel(uploaded_file)
-                        
-                        required_cols = ['日期', '類型', '類別', '金額']
-                        if not all(col in df_import.columns for col in required_cols):
-                            st.error("❌ 格式錯誤：缺少必要欄位 (日期, 類型, 類別, 金額)")
-                        else:
-                            success_count = 0
-                            updated_accounts = bank_accounts.copy()
-                            
-                            with st.spinner("正在匯入資料..."):
-                                for _, row in df_import.iterrows():
-                                    try:
-                                        r_date = pd.to_datetime(row['日期']).date()
-                                        r_type = row['類型']
-                                        if r_type not in ['支出', '收入']: continue
-                                        
-                                        r_category = row['類別']
-                                        r_amount = float(row['金額'])
-                                        r_note = str(row.get('備註', ''))
-                                        if r_note == 'nan': r_note = ''
-                                        
-                                        r_pay_method = str(row.get('支付方式', '')).strip()
-                                        if r_pay_method == 'nan': r_pay_method = ''
-
-                                        final_acc_id = None
-                                        if r_pay_method:
-                                            if r_pay_method in name_to_id:
-                                                final_acc_id = name_to_id[r_pay_method]
-                                            else:
-                                                final_acc_id = str(uuid.uuid4())
-                                                name_to_id[r_pay_method] = final_acc_id
-                                                updated_accounts[final_acc_id] = {'name': r_pay_method, 'balance': 0}
-
-                                        record_data = {
-                                            'date': r_date,
-                                            'type': r_type,
-                                            'category': r_category,
-                                            'amount': r_amount,
-                                            'note': r_note,
-                                            'timestamp': datetime.datetime.now()
-                                        }
-                                        if final_acc_id:
-                                            record_data['account_id'] = final_acc_id
-                                            record_data['account_name'] = r_pay_method
-
-                                        add_record(db, user_id, record_data)
-
-                                        if final_acc_id:
-                                            acc_data = updated_accounts.get(final_acc_id, {'name': r_pay_method, 'balance': 0})
-                                            curr_bal = float(acc_data.get('balance', 0))
-                                            delta = r_amount * (-1.0 if r_type == '支出' else 1.0)
-                                            acc_data['balance'] = curr_bal + delta
-                                            updated_accounts[final_acc_id] = acc_data
-
-                                        success_count += 1
-                                    except Exception as e:
-                                        st.warning(f"跳過一筆錯誤資料: {e}")
-                                        continue
-                            
-                            if success_count > 0:
-                                update_bank_accounts(db, user_id, updated_accounts)
-                                st.success(f"✅ 成功匯入 {success_count} 筆資料！")
-                                st.cache_data.clear()
-                                import time
-                                time.sleep(1.5)
-                                st.rerun()
-
-                    except Exception as e:
-                        st.error(f"檔案讀取失敗: {e}")
-
-    if df_records is None or df_records.empty:
-        st.info("ℹ️ 目前沒有任何交易紀錄。")
-        return
-
-    # --- 以下保持原有的篩選器與列表顯示程式碼 ---
-    col1, col2, col3, col4 = st.columns([1, 1, 3, 1])
-    
+    # [Col 1] 月份篩選
     if 'date' not in df_records.columns or not pd.api.types.is_datetime64_any_dtype(df_records['date']):
-         st.warning("日期欄位缺失或格式不正確，無法進行月份篩選。")
          all_months = []
          selected_month = None
     else:
@@ -1201,12 +1068,103 @@ def display_records_list(db, user_id, df_records):
             all_months = []
         if not all_months:
              selected_month = None
-             st.info("尚無紀錄可供篩選月份。")
         else:
-             selected_month = col1.selectbox("", options=all_months, index=0, key='month_selector', label_visibility="collapsed")
+             selected_month = col1.selectbox("月份", options=all_months, index=0, key='month_selector', label_visibility="collapsed")
     
-    type_filter = col2.selectbox("", options=['全部', '收入', '支出'], key='type_filter', label_visibility="collapsed")
+    # [Col 2] 類型篩選
+    type_filter = col2.selectbox("類型", options=['全部', '收入', '支出'], key='type_filter', label_visibility="collapsed")
     
+    # [Col 3] 空白佔位
+    
+    # [Col 4] 上傳/匯入 Excel (包含範例下載)
+    with col_import:
+        # 為了節省空間，我們將上傳功能緊湊排列
+        uploaded_file = st.file_uploader(
+            "上傳 Excel/CSV", 
+            type=['xlsx', 'xls', 'csv'], 
+            label_visibility="collapsed",
+            key="history_file_uploader"
+        )
+        
+        # 處理匯入邏輯 (當檔案被上傳時自動執行或顯示確認鈕)
+        if uploaded_file is not None:
+            # 顯示一個小的確認按鈕以防誤觸
+            if st.button("確認匯入", key="btn_confirm_import_inline", use_container_width=True):
+                try:
+                    if uploaded_file.name.endswith('.csv'):
+                        df_import = pd.read_csv(uploaded_file)
+                    else:
+                        df_import = pd.read_excel(uploaded_file)
+                    
+                    required_cols = ['日期', '類型', '類別', '金額']
+                    if not all(col in df_import.columns for col in required_cols):
+                        st.error("❌ 格式錯誤：缺必要欄位")
+                    else:
+                        success_count = 0
+                        updated_accounts = bank_accounts.copy()
+                        
+                        with st.spinner("匯入中..."):
+                            for _, row in df_import.iterrows():
+                                try:
+                                    r_date = pd.to_datetime(row['日期']).date()
+                                    r_type = row['類型']
+                                    if r_type not in ['支出', '收入']: continue
+                                    r_category = row['類別']
+                                    r_amount = float(row['金額'])
+                                    r_note = str(row.get('備註', '')).replace('nan', '')
+                                    r_pay_method = str(row.get('支付方式', '')).strip().replace('nan', '')
+
+                                    final_acc_id = None
+                                    if r_pay_method:
+                                        if r_pay_method in name_to_id:
+                                            final_acc_id = name_to_id[r_pay_method]
+                                        else:
+                                            final_acc_id = str(uuid.uuid4())
+                                            name_to_id[r_pay_method] = final_acc_id
+                                            updated_accounts[final_acc_id] = {'name': r_pay_method, 'balance': 0}
+
+                                    record_data = {
+                                        'date': r_date,
+                                        'type': r_type,
+                                        'category': r_category,
+                                        'amount': r_amount,
+                                        'note': r_note,
+                                        'timestamp': datetime.datetime.now()
+                                    }
+                                    if final_acc_id:
+                                        record_data['account_id'] = final_acc_id
+                                        record_data['account_name'] = r_pay_method
+
+                                    add_record(db, user_id, record_data)
+
+                                    if final_acc_id:
+                                        acc_data = updated_accounts.get(final_acc_id, {'name': r_pay_method, 'balance': 0})
+                                        curr_bal = float(acc_data.get('balance', 0))
+                                        delta = r_amount * (-1.0 if r_type == '支出' else 1.0)
+                                        acc_data['balance'] = curr_bal + delta
+                                        updated_accounts[final_acc_id] = acc_data
+
+                                    success_count += 1
+                                except:
+                                    continue
+                        
+                        if success_count > 0:
+                            update_bank_accounts(db, user_id, updated_accounts)
+                            st.success(f"已匯入 {success_count} 筆")
+                            st.cache_data.clear()
+                            import time
+                            time.sleep(1.0)
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"錯誤: {e}")
+        else:
+            # 沒有上傳檔案時，顯示下載範例連結 (避免按鈕太多太雜，改用 Link 或小按鈕)
+            example_data = pd.DataFrame([{'日期': '2023-01-01', '類型': '支出', '類別': '食', '金額': 100, '支付方式': '現金', '備註': '範例'}])
+            csv_ex = convert_df_to_csv(example_data)
+            st.download_button("下載匯入範例", data=csv_ex, file_name='template.csv', mime='text/csv', key='btn_dl_template_inline', use_container_width=True)
+
+    
+    # --- 資料篩選與下載 (Export) ---
     df_filtered = df_records.copy()
     if selected_month:
         try:
@@ -1215,12 +1173,9 @@ def display_records_list(db, user_id, df_records):
                  df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
              else:
                  if 'date' in df_filtered.columns and pd.api.types.is_datetime64_any_dtype(df_filtered['date']):
-                     date_series_filtered = df_filtered['date'].dropna()
-                     if not date_series_filtered.empty:
-                         df_filtered['month_year_period'] = df_filtered['date'].dt.to_period('M')
-                         df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
-        except (ValueError, TypeError):
-             st.error("月份格式錯誤，無法篩選。")
+                     df_filtered['month_year_period'] = df_filtered['date'].dt.to_period('M')
+                     df_filtered = df_filtered.loc[df_filtered['month_year_period'] == selected_month_period].copy()
+        except: pass
 
     if type_filter != '全部':
         df_filtered = df_filtered.loc[df_filtered['type'] == type_filter].copy()
@@ -1228,20 +1183,22 @@ def display_records_list(db, user_id, df_records):
     if st.session_state.editing_record_id is None:
         df_filtered = df_filtered.sort_values(by='date', ascending=False)
     
-    # 導出按鈕
-    if not df_filtered.empty:
-        csv = convert_df_to_csv(df_filtered) 
-        file_name_month = selected_month if selected_month else "all"
-        if csv:
-            col4.download_button(
-                label="📥 下載 (CSV)",
-                data=csv,
-                file_name=f'交易紀錄_{file_name_month}.csv',
-                mime='text/csv',
-                key='download_csv_button'
-            )
-    else:
-        col4.info("無紀錄")
+    # [Col 5] 下載歷史紀錄按鈕
+    with col4:
+        if not df_filtered.empty:
+            csv = convert_df_to_csv(df_filtered) 
+            file_name_month = selected_month if selected_month else "all"
+            if csv:
+                st.download_button(
+                    label="📥 下載紀錄",
+                    data=csv,
+                    file_name=f'交易紀錄_{file_name_month}.csv',
+                    mime='text/csv',
+                    key='download_csv_button',
+                    use_container_width=True
+                )
+        else:
+            st.info("無紀錄")
 
     # --- 紀錄列表標題 ---
     header_cols = st.columns([1.2, 1, 1, 0.7, 7, 2]) 
@@ -1263,7 +1220,6 @@ def display_records_list(db, user_id, df_records):
                 record_note = row.get('note', 'N/A')
                 record_account_name = row.get('account_name')
             except KeyError as e:
-                st.warning(f"紀錄 {row.get('id', 'N/A')} 缺少欄位: {e}，跳過顯示。")
                 continue
 
             # --- 編輯模式 ---
